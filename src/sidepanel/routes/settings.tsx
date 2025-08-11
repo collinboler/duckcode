@@ -5,9 +5,9 @@ import { UserProfile, SignIn, SignedIn, SignedOut } from '@clerk/chrome-extensio
 export const Settings = () => {
   const navigate = useNavigate()
   const [darkMode, setDarkMode] = useState(false)
-  const [showCoords, setShowCoords] = useState(false)
-  const [showMap, setShowMap] = useState(true)
   const [apiKey, setApiKey] = useState('')
+  const [savedApiKey, setSavedApiKey] = useState('')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [advancedExpanded, setAdvancedExpanded] = useState(false)
   const [tokensUsed, setTokensUsed] = useState('--')
   const [analysisCost, setAnalysisCost] = useState('$0.00')
@@ -15,12 +15,15 @@ export const Settings = () => {
 
   // Load settings from storage
   useEffect(() => {
-    chrome.storage.sync.get(['darkMode', 'showCoords', 'showMap', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost'], (result) => {
+    chrome.storage.sync.get(['darkMode', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost'], (result) => {
       const isDarkMode = result.darkMode || false
       setDarkMode(isDarkMode)
-      setShowCoords(result.showCoords || false)
-      setShowMap(result.showMap !== false)
-      setApiKey(result.openaiApiKey || '')
+      
+      if (result.openaiApiKey) {
+        setSavedApiKey('••••••••••••••••••••••••••••••••••••••••••••••••••••')
+        setApiKey(result.openaiApiKey)
+      }
+      
       setTokensUsed(result.tokensUsed || '--')
       setAnalysisCost(result.analysisCost || '$0.00')
       setSessionCost(result.sessionCost || '$0.00')
@@ -38,28 +41,45 @@ export const Settings = () => {
     chrome.storage.sync.set({ [setting]: value }, () => {
       console.log(`${setting} saved:`, value)
     })
-    switch (setting) {
-      case 'darkMode':
-        setDarkMode(value)
-        // Immediately apply dark mode class to body
-        if (value) {
-          document.body.classList.add('dark-mode')
-        } else {
-          document.body.classList.remove('dark-mode')
-        }
-        break
-      case 'showCoords':
-        setShowCoords(value)
-        break
-      case 'showMap':
-        setShowMap(value)
-        break
+    if (setting === 'darkMode') {
+      setDarkMode(value)
+      // Immediately apply dark mode class to body
+      if (value) {
+        document.body.classList.add('dark-mode')
+      } else {
+        document.body.classList.remove('dark-mode')
+      }
     }
   }
 
-  const handleSaveApiKey = () => {
-    chrome.storage.sync.set({ openaiApiKey: apiKey })
-    alert('API Key saved successfully!')
+  const handleSaveApiKey = async () => {
+    if (!apiKey.trim()) {
+      setSaveStatus('error')
+      return
+    }
+
+    setSaveStatus('saving')
+    try {
+      await chrome.storage.sync.set({ openaiApiKey: apiKey })
+      setSavedApiKey('••••••••••••••••••••••••••••••••••••••••••••••••••••')
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    } catch (error) {
+      console.error('Failed to save API key:', error)
+      setSaveStatus('error')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    }
+  }
+
+  const handleClearApiKey = async () => {
+    try {
+      await chrome.storage.sync.remove(['openaiApiKey'])
+      setApiKey('')
+      setSavedApiKey('')
+      setSaveStatus('idle')
+    } catch (error) {
+      console.error('Failed to clear API key:', error)
+    }
   }
 
   const handleResetSessionCost = () => {
@@ -87,7 +107,7 @@ export const Settings = () => {
                 <path d="M12 19l-7-7 7-7"/>
               </svg>
             </button>
-            <h1>Settings</h1>
+            <h1>🦆 DuckCode Settings</h1>
           </div>
         </div>
         
@@ -121,9 +141,49 @@ export const Settings = () => {
             </SignedIn>
           </div>
 
+          {/* OpenAI Configuration Section */}
+          <div className="settings-section">
+            <h3>🔑 OpenAI Configuration</h3>
+            <div className="setting-item api-key-section">
+              <div className="api-key-content">
+                <p className="api-description">
+                  Configure your OpenAI API key to enable voice interviews. 
+                  <a href="https://platform.openai.com/api-keys" target="_blank" className="api-link">Get your API key here</a>
+                </p>
+                <div className="input-group">
+                  <input 
+                    type="password" 
+                    placeholder="sk-..."
+                    value={savedApiKey || apiKey}
+                    onChange={(e) => {
+                      setApiKey(e.target.value)
+                      setSavedApiKey('')
+                    }}
+                    className="api-key-field"
+                  />
+                  <button 
+                    onClick={handleSaveApiKey}
+                    disabled={saveStatus === 'saving'}
+                    className={`save-btn ${saveStatus}`}
+                  >
+                    {saveStatus === 'saving' && '⏳'}
+                    {saveStatus === 'saved' && '✅'}
+                    {saveStatus === 'error' && '❌'}
+                    {saveStatus === 'idle' && '💾'}
+                  </button>
+                  {savedApiKey && (
+                    <button onClick={handleClearApiKey} className="clear-btn">
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Display Settings Section */}
           <div className="settings-section">
-            <h3>Display Settings</h3>
+            <h3>🎨 Display Settings</h3>
             <div className="setting-item">
               <label htmlFor="dark-mode-switch">Dark Mode</label>
               <label className="switch">
@@ -137,63 +197,10 @@ export const Settings = () => {
               </label>
             </div>
           </div>
-
-          {/* Advanced Settings Section */}
-          <div className="settings-section">
-            <div 
-              className="settings-header" 
-              onClick={() => setAdvancedExpanded(!advancedExpanded)}
-            >
-              <h3>Advanced Settings</h3>
-              <button className={`dropdown-toggle ${advancedExpanded ? 'expanded' : ''}`}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M6 9l6 6 6-6"/>
-                </svg>
-              </button>
-            </div>
-            <div className={`settings-dropdown ${advancedExpanded ? 'expanded' : ''}`}>
-              <div className="setting-item">
-                <label htmlFor="show-coords-switch">Show Coordinates</label>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    id="show-coords-switch"
-                    checked={showCoords}
-                    onChange={(e) => handleToggle('showCoords', e.target.checked)}
-                  />
-                  <span className="slider round"></span>
-                </label>
-              </div>
-              <div className="setting-item">
-                <label htmlFor="show-map-switch">Show Map</label>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    id="show-map-switch"
-                    checked={showMap}
-                    onChange={(e) => handleToggle('showMap', e.target.checked)}
-                  />
-                  <span className="slider round"></span>
-                </label>
-              </div>
-              <div className="setting-item">
-                <a href="https://platform.openai.com/api-keys" target="_blank" className="api-link">Get OpenAI Key</a>
-                <div className="input-group">
-                  <input 
-                    type="password" 
-                    placeholder="Enter OpenAI API Key"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
-                  <button onClick={handleSaveApiKey}>Save</button>
-                </div>
-              </div>
-            </div>
-          </div>
           
-          {/* Pricing Info Section */}
+          {/* Usage Statistics Section */}
           <div className="pricing-info">
-            <h3>Last Analysis Cost</h3>
+            <h3>📊 Usage Statistics</h3>
             <div className="pricing-details">
               <div className="pricing-item">
                 <span className="pricing-label">Tokens used:</span>
@@ -497,17 +504,71 @@ export const Settings = () => {
           opacity: 1;
         }
 
+        .api-key-section {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .api-key-content {
+          width: 100%;
+        }
+
+        .api-description {
+          font-size: 13px;
+          color: #666;
+          margin-bottom: 12px;
+          line-height: 1.4;
+        }
+
         .api-link {
           color: #667eea;
           text-decoration: none;
-          font-size: 14px;
           font-weight: 500;
-          margin-bottom: 8px;
-          display: inline-block;
+          margin-left: 4px;
         }
 
         .api-link:hover {
           text-decoration: underline;
+        }
+
+        .api-key-field {
+          font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+        }
+
+        .save-btn, .clear-btn {
+          min-width: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .save-btn.saved {
+          background: #28a745 !important;
+        }
+
+        .save-btn.error {
+          background: #dc3545 !important;
+        }
+
+        .save-btn:disabled {
+          opacity: 0.7;
+          cursor: not-allowed;
+        }
+
+        .clear-btn {
+          background: #6c757d;
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .clear-btn:hover {
+          background: #5a6268;
+          transform: translateY(-1px);
         }
 
         .input-group {
@@ -695,8 +756,20 @@ export const Settings = () => {
           background-color: #4b5563;
         }
 
+        :global(.dark-mode) .api-description {
+          color: #d1d5db;
+        }
+
         :global(.dark-mode) .api-link {
           color: #60a5fa;
+        }
+
+        :global(.dark-mode) .clear-btn {
+          background: #6b7280;
+        }
+
+        :global(.dark-mode) .clear-btn:hover {
+          background: #4b5563;
         }
 
         :global(.dark-mode) .input-group input {

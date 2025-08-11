@@ -70,6 +70,21 @@ const router = createMemoryRouter([
 })
 
 export default function SidepanelIndex() {
+  React.useEffect(() => {
+    // Listen for navigation messages from content script
+    const handleMessage = (message: any) => {
+      if (message.action === 'navigate' && message.route) {
+        router.navigate(message.route)
+      }
+    }
+
+    chrome.runtime.onMessage.addListener(handleMessage)
+    
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessage)
+    }
+  }, [])
+
   return (
     <ErrorBoundary>
       <RouterProvider router={router} />

@@ -1,6 +1,14 @@
 import cssText from "data-text:~style.css"
 import type { PlasmoCSConfig } from "plasmo"
 import React, { useState, useEffect, useRef } from "react"
+import {
+  ClerkProvider,
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+  useUser
+} from '@clerk/chrome-extension'
 
 export const config: PlasmoCSConfig = {
   matches: ["*://leetcode.com/*", "*://*.leetcode.com/*"]
@@ -34,7 +42,28 @@ interface LeetCodeContent {
   testCases: string
 }
 
-const DuckCodeModal = () => {
+// Get environment variables
+const PUBLISHABLE_KEY = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
+const EXTENSION_URL = chrome.runtime.getURL('.')
+
+if (!PUBLISHABLE_KEY) {
+  throw new Error('Please add the PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY to the .env.development file')
+}
+
+// Function to open sidepanel settings
+const openSidepanelSettings = () => {
+  // Send message to background script to open sidepanel and navigate to settings
+  chrome.runtime.sendMessage({ 
+    action: 'openSidepanel', 
+    route: '/settings' 
+  }).catch((error) => {
+    console.error('Failed to send message to open sidepanel:', error)
+  })
+}
+
+// Main modal content component (needs to be inside ClerkProvider)
+const DuckCodeModalContent = () => {
+  const { user, isSignedIn } = useUser()
   const [isVisible, setIsVisible] = useState(false)
   const [position, setPosition] = useState<Position>({ x: 20, y: 20 })
   const [isDragging, setIsDragging] = useState(false)
@@ -42,36 +71,12 @@ const DuckCodeModal = () => {
   const [isConnected, setIsConnected] = useState(false)
   const [interviewMode, setInterviewMode] = useState(false)
   const [transcript, setTranscript] = useState('')
-  const [conversationHistory, setConversationHistory] = useState<Array<{type: 'user' | 'ai' | 'system', text: string}>>([])
-  
-  // Helper function to add to transcript safely
-  const addToTranscript = (newText: string, type: 'user' | 'ai' | 'system' = 'system') => {
-    setConversationHistory(prev => {
-      const updated = [...prev, { type, text: newText }]
-      // Keep only last 10 messages to prevent memory issues
-      if (updated.length > 10) {
-        updated.splice(0, updated.length - 10)
-      }
-      return updated
-    })
-    
-    // Update display transcript
-    setTranscript(prev => {
-      const lines = prev.split('\n')
-      // Keep only last 20 lines to prevent stack overflow
-      if (lines.length > 20) {
-        lines.splice(0, lines.length - 20)
-      }
-      return lines.join('\n') + '\n\n' + newText
-    })
-  }
   const [currentProblem, setCurrentProblem] = useState<string>('')
   const [leetcodeContent, setLeetcodeContent] = useState<LeetCodeContent | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
+
   
   const modalRef = useRef<HTMLDivElement>(null)
-  const wsRef = useRef<WebSocket | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
@@ -103,7 +108,7 @@ const DuckCodeModal = () => {
       }
     }
 
-    // Problem description (limit to prevent memory issues)
+    // Problem description
     const descriptionSelectors = [
       '[data-track-load="description_content"]',
       '.question-content',
@@ -115,8 +120,7 @@ const DuckCodeModal = () => {
     for (const selector of descriptionSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
-        // Limit description to 1000 characters to prevent memory issues
-        content.problemDescription = element.textContent.trim().substring(0, 1000)
+        content.problemDescription = element.textContent.trim()
         break
       }
     }
@@ -181,7 +185,7 @@ const DuckCodeModal = () => {
       const apiKey = result.openaiApiKey
       
       if (!apiKey) {
-        addToTranscript('❌ Please configure your OpenAI API key in Settings.')
+        setTranscript('❌ Please configure your OpenAI API key in Settings.')
         setConnectionStatus('disconnected')
         return
       }
@@ -204,7 +208,7 @@ Click "Record" to start speaking about your approach!`)
     } catch (error) {
       console.error('Failed to initialize:', error)
       setConnectionStatus('disconnected')
-      addToTranscript('❌ Failed to initialize. Please check your API key and try again.')
+      setTranscript('❌ Failed to initialize. Please check your API key and try again.')
     }
   }
 
@@ -215,13 +219,11 @@ Click "Record" to start speaking about your approach!`)
       const apiKey = result.openaiApiKey
       
       if (!apiKey) {
-        addToTranscript('❌ API key not found.')
+        setTranscript(prev => prev + '\n\n❌ API key not found.')
         return
       }
 
-      // Convert audio to base64
-      const arrayBuffer = await audioBlob.arrayBuffer()
-      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+      // Process audio blob directly
 
       // First, transcribe the audio using Whisper
       const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -244,34 +246,7 @@ Click "Record" to start speaking about your approach!`)
       const transcriptionData = await transcriptionResponse.json()
       const userText = transcriptionData.text
 
-      addToTranscript(`👤 You: ${userText}`, 'user')
-
-      // Build conversation messages (limit to prevent token overflow)
-      const messages = [
-        {
-          role: 'system' as const,
-          content: `You are a mock coding interviewer. 
-
-Problem: ${leetcodeContent?.problemTitle}
-Description: ${leetcodeContent?.problemDescription?.substring(0, 500)}...
-Current Code: ${leetcodeContent?.codeSection?.substring(0, 300) || 'No code written yet'}
-
-Act as a friendly interviewer. Ask follow-up questions and provide feedback. Keep responses to 1-2 sentences.`
-        }
-      ]
-
-      // Add recent conversation history (last 4 messages only)
-      const recentHistory = conversationHistory.slice(-4)
-      recentHistory.forEach(msg => {
-        if (msg.type === 'user') {
-          messages.push({ role: 'user' as const, content: msg.text.replace('👤 You: ', '') })
-        } else if (msg.type === 'ai') {
-          messages.push({ role: 'assistant' as const, content: msg.text.replace('🤖 Interviewer: ', '') })
-        }
-      })
-
-      // Add current user message
-      messages.push({ role: 'user' as const, content: userText })
+      setTranscript(prev => prev + `\n\n👤 You: ${userText}`)
 
       // Now send to GPT-4 for interview response
       const chatResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -282,7 +257,24 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a mock coding interviewer helping someone practice technical interviews. 
+
+Current LeetCode Problem Context:
+- Problem: ${leetcodeContent?.problemTitle}
+- Description: ${leetcodeContent?.problemDescription}
+- Current Code: ${leetcodeContent?.codeSection || 'No code written yet'}
+- Test Cases: ${leetcodeContent?.testCases}
+
+Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
+            },
+            {
+              role: 'user',
+              content: userText
+            }
+          ],
           max_tokens: 150,
           temperature: 0.7
         })
@@ -295,7 +287,7 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
       const chatData = await chatResponse.json()
       const aiResponse = chatData.choices[0]?.message?.content || 'I understand. Please continue.'
 
-      addToTranscript(`🤖 Interviewer: ${aiResponse}`, 'ai')
+      setTranscript(prev => prev + `\n\n🤖 Interviewer: ${aiResponse}`)
 
       // Convert AI response to speech using TTS
       const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -323,7 +315,7 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
 
     } catch (error) {
       console.error('Error processing audio:', error)
-      addToTranscript(`❌ Error: ${error.message}`)
+      setTranscript(prev => prev + `\n\n❌ Error: ${error.message}`)
     }
   }
 
@@ -351,10 +343,10 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
       }
 
       mediaRecorder.start()
-      addToTranscript('🎤 Recording... Speak now!')
+      setTranscript(prev => prev + '\n\n🎤 Recording... Speak now!')
     } catch (error) {
       console.error('Error starting recording:', error)
-      addToTranscript('❌ Microphone access denied. Please allow microphone access.')
+      setTranscript(prev => prev + '\n\n❌ Microphone access denied. Please allow microphone access.')
     }
   }
 
@@ -363,7 +355,7 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
-      addToTranscript('⏹️ Recording stopped. Processing...')
+      setTranscript(prev => prev + '\n\n⏹️ Recording stopped. Processing...')
     }
   }
 
@@ -491,54 +483,95 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
             {connectionStatus === 'disconnected' && '🔴'}
           </div>
         </div>
-        <button 
-          className="close-btn"
-          onClick={() => setIsVisible(false)}
-        >
-          ×
-        </button>
+        <div className="header-actions">
+          <button 
+            className="settings-btn"
+            onClick={openSidepanelSettings}
+            title="Settings"
+          >
+            ⚙️
+          </button>
+          <button 
+            className="close-btn"
+            onClick={() => setIsVisible(false)}
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="modal-body">
-        <div className="problem-info">
-          <div className="problem-title">{currentProblem}</div>
-          <div className="problem-status">
-            {leetcodeContent ? 'Content scraped ✅' : 'Problem detected ✅'}
-          </div>
+        {/* Authentication Section */}
+        <div className="auth-section">
+          <SignedOut>
+            <div className="auth-prompt">
+              <p>Sign in to start your mock interview</p>
+              <SignInButton mode="modal">
+                <button className="sign-in-btn">
+                  <span className="btn-icon">🔐</span>
+                  Sign In
+                </button>
+              </SignInButton>
+            </div>
+          </SignedOut>
+          
+          <SignedIn>
+            <div className="user-info">
+              <UserButton 
+                appearance={{
+                  elements: {
+                    avatarBox: "w-8 h-8"
+                  }
+                }}
+              />
+              <span className="welcome-text">Welcome, {user?.firstName || 'User'}!</span>
+            </div>
+          </SignedIn>
         </div>
 
-        {!interviewMode ? (
-          <button className="start-btn" onClick={startInterview}>
-            <span className="btn-icon">🎤</span>
-            Start Voice Interview
-          </button>
-        ) : (
-          <div className="interview-controls">
-            <button 
-              className={`record-btn ${mediaRecorderRef.current?.state === 'recording' ? 'recording' : ''}`}
-              onClick={toggleRecording}
-              disabled={!isConnected}
-            >
-              <span className="btn-icon">
-                {mediaRecorderRef.current?.state === 'recording' ? '⏹️' : '🎤'}
-              </span>
-              {mediaRecorderRef.current?.state === 'recording' ? 'Stop' : 'Record'}
-            </button>
-            
-            <button className="stop-btn" onClick={stopInterview}>
-              <span className="btn-icon">❌</span>
-              End
-            </button>
+        <SignedIn>
+          <div className="problem-info">
+            <div className="problem-title">{currentProblem}</div>
+            <div className="problem-status">
+              {leetcodeContent ? 'Content scraped ✅' : 'Problem detected ✅'}
+            </div>
           </div>
-        )}
 
-        {transcript && (
-          <div className="transcript">
-            <div className="transcript-header">💬 Interview Transcript</div>
-            <div className="transcript-content">{transcript}</div>
-          </div>
-        )}
+          {!interviewMode ? (
+            <button className="start-btn" onClick={startInterview}>
+              <span className="btn-icon">🎤</span>
+              Start Voice Interview
+            </button>
+          ) : (
+            <div className="interview-controls">
+              <button 
+                className={`record-btn ${mediaRecorderRef.current?.state === 'recording' ? 'recording' : ''}`}
+                onClick={toggleRecording}
+                disabled={!isConnected}
+              >
+                <span className="btn-icon">
+                  {mediaRecorderRef.current?.state === 'recording' ? '⏹️' : '🎤'}
+                </span>
+                {mediaRecorderRef.current?.state === 'recording' ? 'Stop' : 'Record'}
+              </button>
+              
+              <button className="stop-btn" onClick={stopInterview}>
+                <span className="btn-icon">❌</span>
+                End
+              </button>
+            </div>
+          )}
+
+          {transcript && (
+            <div className="transcript">
+              <div className="transcript-header">💬 Interview Transcript</div>
+              <div className="transcript-content">{transcript}</div>
+            </div>
+          )}
+        </SignedIn>
       </div>
+
+
 
       <style>{`
         .duckcode-modal {
@@ -574,6 +607,12 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
           gap: 8px;
         }
 
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
         .logo {
           font-size: 18px;
         }
@@ -587,11 +626,11 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
           font-size: 12px;
         }
 
-        .close-btn {
+        .settings-btn, .close-btn {
           background: none;
           border: none;
           color: white;
-          font-size: 20px;
+          font-size: 16px;
           cursor: pointer;
           padding: 0;
           width: 24px;
@@ -603,7 +642,11 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
           transition: background-color 0.2s;
         }
 
-        .close-btn:hover {
+        .close-btn {
+          font-size: 20px;
+        }
+
+        .settings-btn:hover, .close-btn:hover {
           background: rgba(255, 255, 255, 0.2);
         }
 
@@ -612,6 +655,50 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
           display: flex;
           flex-direction: column;
           gap: 16px;
+        }
+
+        .auth-section {
+          text-align: center;
+        }
+
+        .auth-prompt p {
+          margin: 0 0 12px 0;
+          color: #666;
+          font-size: 14px;
+        }
+
+        .sign-in-btn {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border: none;
+          border-radius: 8px;
+          color: white;
+          padding: 10px 16px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: transform 0.2s;
+          margin: 0 auto;
+        }
+
+        .sign-in-btn:hover {
+          transform: translateY(-1px);
+        }
+
+        .user-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          justify-content: center;
+        }
+
+        .welcome-text {
+          font-size: 14px;
+          color: #333;
+          font-weight: 500;
         }
 
         .problem-info {
@@ -729,8 +816,24 @@ Act as a friendly interviewer. Ask follow-up questions and provide feedback. Kee
         .btn-icon {
           font-size: 14px;
         }
+
+
       `}</style>
     </div>
+  )
+}
+
+// Main component with ClerkProvider wrapper
+const DuckCodeModal = () => {
+  return (
+    <ClerkProvider
+      publishableKey={PUBLISHABLE_KEY}
+      afterSignOutUrl={`${EXTENSION_URL}/popup.html`}
+      signInFallbackRedirectUrl={`${EXTENSION_URL}/popup.html`}
+      signUpFallbackRedirectUrl={`${EXTENSION_URL}/popup.html`}
+    >
+      <DuckCodeModalContent />
+    </ClerkProvider>
   )
 }
 

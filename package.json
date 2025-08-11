@@ -39,6 +39,7 @@
     ],
     "host_permissions": [
       "https://*.clerk.accounts.dev/*",
+      "$CLERK_FRONTEND_API/*",
       "http://localhost/*",
       "https://localhost/*",
       "https://api.openai.com/*",
