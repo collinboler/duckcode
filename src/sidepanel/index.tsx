@@ -1,0 +1,78 @@
+import React from 'react'
+
+import '../style.css'
+
+import { createMemoryRouter, RouterProvider } from 'react-router'
+
+import { ErrorBoundary } from './components/error-boundary'
+import { RootLayout } from './layouts/root-layout'
+import { Home } from './routes/home'
+import { Settings } from './routes/settings'
+import { SignInPage } from './routes/sign-in'
+import { SignUpPage } from './routes/sign-up'
+
+// Error component for route-level errors
+const RouteErrorComponent = () => (
+  <div className="plasmo-p-4 plasmo-text-center">
+    <h3 className="plasmo-text-lg plasmo-font-semibold plasmo-text-red-600 plasmo-mb-2">
+      Navigation Error
+    </h3>
+    <p className="plasmo-text-sm plasmo-text-gray-600 plasmo-mb-4">
+      There was an error navigating to this page.
+    </p>
+    <button 
+      onClick={() => window.location.hash = '#/'}
+      className="plasmo-px-4 plasmo-py-2 plasmo-bg-blue-600 plasmo-text-white plasmo-rounded plasmo-hover:bg-blue-700"
+    >
+      Go Home
+    </button>
+  </div>
+)
+
+const router = createMemoryRouter([
+  {
+    // Wraps the entire app in the root layout
+    element: <RootLayout />,
+    errorElement: <RouteErrorComponent />,
+    // Mounted where the <Outlet /> component is inside the root layout
+    children: [
+      { 
+        path: '/', 
+        element: <Home />,
+        errorElement: <RouteErrorComponent />
+      },
+      { 
+        path: '/sign-in', 
+        element: <SignInPage />,
+        errorElement: <RouteErrorComponent />
+      },
+      { 
+        path: '/sign-up', 
+        element: <SignUpPage />,
+        errorElement: <RouteErrorComponent />
+      },
+      { 
+        path: '/settings', 
+        element: <Settings />,
+        errorElement: <RouteErrorComponent />
+      },
+      // Catch-all route for any unmatched paths
+      {
+        path: '*',
+        element: <Home />,
+        errorElement: <RouteErrorComponent />
+      }
+    ],
+  },
+], {
+  initialEntries: ['/'],
+  initialIndex: 0,
+})
+
+export default function SidepanelIndex() {
+  return (
+    <ErrorBoundary>
+      <RouterProvider router={router} />
+    </ErrorBoundary>
+  )
+} 
