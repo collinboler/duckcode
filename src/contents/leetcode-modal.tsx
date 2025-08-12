@@ -40,6 +40,7 @@ interface LeetCodeContent {
   solutions: string
   codeSection: string
   testCases: string
+  hints: string
 }
 
 // Get environment variables
@@ -100,6 +101,19 @@ const DuckCodeModalContent = () => {
     setTimeout(initializeDuckPosition, 100)
   }, [])
 
+  // Helper function to clean HTML entities
+  const cleanHtmlEntities = (text: string): string => {
+    return text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
   // Scrape LeetCode content from the page
   const scrapeLeetCodeContent = (): LeetCodeContent => {
     const content: LeetCodeContent = {
@@ -108,7 +122,8 @@ const DuckCodeModalContent = () => {
       editorial: '',
       solutions: '',
       codeSection: '',
-      testCases: ''
+      testCases: '',
+      hints: ''
     }
 
     // Problem title
@@ -123,7 +138,7 @@ const DuckCodeModalContent = () => {
     for (const selector of titleSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
-        content.problemTitle = element.textContent.trim()
+        content.problemTitle = cleanHtmlEntities(element.textContent.trim())
         break
       }
     }
@@ -140,7 +155,7 @@ const DuckCodeModalContent = () => {
     for (const selector of descriptionSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
-        content.problemDescription = element.textContent.trim()
+        content.problemDescription = cleanHtmlEntities(element.textContent.trim())
         break
       }
     }
@@ -192,6 +207,81 @@ const DuckCodeModalContent = () => {
       }
     }
 
+    // Hints (if available) - be very specific to avoid discussion content
+    let allHints: string[] = []
+    
+    // Strategy 1: Look for actual hint sections in the problem area
+    // Avoid discussion and community content areas
+    const problemArea = document.querySelector('[data-track-load="description_content"]') || 
+                       document.querySelector('.question-content') || 
+                       document.querySelector('[class*="description"]') ||
+                       document.body
+    
+    if (problemArea) {
+      // Look for hint-specific elements within the problem area only
+      const hintElements = problemArea.querySelectorAll([
+        '[data-cy="hint"]',
+        '.hint:not([class*="discussion"]):not([class*="comment"])',
+        '[class*="hint"]:not([class*="discussion"]):not([class*="comment"])',
+        '[data-track-load="hint"]'
+      ].join(', '))
+      
+      hintElements.forEach(el => {
+        const text = el.textContent?.trim()
+        // Only include if it's actually a hint (starts with "Hint" or contains hint-like content)
+        if (text && text.length > 20 && (
+          text.toLowerCase().startsWith('hint') ||
+          (text.toLowerCase().includes('brute force') && text.length < 500) ||
+          (text.toLowerCase().includes('approach') && text.length < 500)
+        )) {
+          // Exclude discussion rules and community guidelines
+          if (!text.toLowerCase().includes('discussion rules') &&
+              !text.toLowerCase().includes('community') &&
+              !text.toLowerCase().includes('guidelines') &&
+              !text.toLowerCase().includes('be respectful') &&
+              !text.toLowerCase().includes('no spam')) {
+            allHints.push(text)
+          }
+        }
+      })
+    }
+    
+    // Strategy 2: Look for numbered hints specifically
+    const numberedHints = document.querySelectorAll('div, p, span')
+    numberedHints.forEach(el => {
+      const text = el.textContent?.trim()
+      if (text && 
+          (text.match(/^Hint\s*\d+/i) || text.match(/^Hint:/i)) &&
+          text.length > 20 && text.length < 1000) {
+        // Make sure it's not in a discussion area
+        const isInDiscussion = el.closest('[class*="discussion"]') || 
+                              el.closest('[class*="comment"]') ||
+                              el.closest('[class*="community"]')
+        if (!isInDiscussion) {
+          allHints.push(text)
+        }
+      }
+    })
+    
+    // Clean up and deduplicate hints
+    const uniqueHints = [...new Set(allHints)]
+      .map(hint => cleanHtmlEntities(hint))
+      .filter(hint => {
+        // Additional filtering to ensure quality
+        const lower = hint.toLowerCase()
+        return hint.length > 20 && 
+               hint.length < 1000 && // Not too long
+               !lower.includes('discussion rules') &&
+               !lower.includes('community guidelines') &&
+               !lower.includes('be respectful') &&
+               (lower.includes('hint') || lower.includes('brute force') || lower.includes('approach'))
+      })
+      .slice(0, 3) // Limit to 3 hints
+    
+    if (uniqueHints.length > 0) {
+      content.hints = uniqueHints.join('\n\n')
+    }
+
     return content
   }
 
@@ -216,12 +306,27 @@ const DuckCodeModalContent = () => {
 
       setConnectionStatus('connected')
       setIsConnected(true)
+      // Process hints - limit to first 3 and clean them up
+      const processedHints = content.hints ? 
+        content.hints.split('\n\n')
+          .filter(hint => hint.trim().length > 10)
+          .slice(0, 3)
+          .map((hint, index) => `Hint ${index + 1}: ${hint.trim()}`)
+          .join('\n\n') 
+        : 'None available'
+
       setTranscript(`🎤 Ready for interview! 
 
 📋 Problem Context Loaded:
 - Problem: ${content.problemTitle}
-- Description: ${content.problemDescription.substring(0, 200)}...
+
+- Description: ${content.problemDescription}
+
 - Current Code: ${content.codeSection || 'No code written yet'}
+
+- Test Cases: ${content.testCases || 'None found'}
+
+- Hints: ${processedHints}
 
 Click "Record" to start speaking about your approach!`)
 
@@ -287,8 +392,9 @@ Current LeetCode Problem Context:
 - Description: ${leetcodeContent?.problemDescription}
 - Current Code: ${leetcodeContent?.codeSection || 'No code written yet'}
 - Test Cases: ${leetcodeContent?.testCases}
+- Hints: ${leetcodeContent?.hints || 'No hints available'}
 
-Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
+Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. If hints are available, you can reference them subtly to guide the candidate without being too direct. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
             },
             {
               role: 'user',
