@@ -91,6 +91,7 @@ const DuckCodeModalContent = () => {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
   const [keysPressed, setKeysPressed] = useState<Set<string>>(new Set())
+  const [isSpeaking, setIsSpeaking] = useState(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -190,23 +191,23 @@ const DuckCodeModalContent = () => {
       '.difficulty + div a', // Topics often appear after difficulty
       '[class*="badge"]'
     ]
-    
+
     let allTopics: string[] = []
-    
+
     topicSelectors.forEach(selector => {
       const elements = document.querySelectorAll(selector)
       elements.forEach(el => {
         const text = el.textContent?.trim()
-        if (text && text.length > 0 && text.length < 50 && 
-            !text.toLowerCase().includes('easy') &&
-            !text.toLowerCase().includes('medium') &&
-            !text.toLowerCase().includes('hard') &&
-            !text.toLowerCase().includes('difficulty')) {
+        if (text && text.length > 0 && text.length < 50 &&
+          !text.toLowerCase().includes('easy') &&
+          !text.toLowerCase().includes('medium') &&
+          !text.toLowerCase().includes('hard') &&
+          !text.toLowerCase().includes('difficulty')) {
           allTopics.push(text)
         }
       })
     })
-    
+
     // Also look for topics in specific patterns
     const topicPatterns = document.querySelectorAll('a[href*="/tag/"], a[href*="/topic/"]')
     topicPatterns.forEach(el => {
@@ -215,20 +216,20 @@ const DuckCodeModalContent = () => {
         allTopics.push(text)
       }
     })
-    
+
     // Clean up and deduplicate topics
     const uniqueTopics = [...new Set(allTopics)]
       .map(topic => cleanHtmlEntities(topic))
       .filter(topic => topic.length > 0 && topic.length < 50)
       .slice(0, 10) // Limit to 10 topics
-    
+
     if (uniqueTopics.length > 0) {
       content.topics = uniqueTopics.join(', ')
     }
 
     // Code section (current user code) - enhanced Monaco editor detection
     let codeContent = ''
-    
+
     // Strategy 1: Try Monaco editor model content
     try {
       // @ts-ignore - Monaco editor global
@@ -242,7 +243,7 @@ const DuckCodeModalContent = () => {
     } catch (e) {
       console.log('Monaco editor not accessible via global')
     }
-    
+
     // Strategy 2: Try to get code from Monaco editor DOM
     if (!codeContent) {
       const monacoLines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
@@ -254,7 +255,7 @@ const DuckCodeModalContent = () => {
         codeContent = lines.join('\n')
       }
     }
-    
+
     // Strategy 3: Try textarea and other input methods
     if (!codeContent) {
       const codeSelectors = [
@@ -266,7 +267,7 @@ const DuckCodeModalContent = () => {
         'textarea[data-mode-id]',
         '.inputarea'
       ]
-      
+
       for (const selector of codeSelectors) {
         const element = document.querySelector(selector) as HTMLTextAreaElement
         if (element?.value && element.value.trim().length > 0) {
@@ -275,7 +276,7 @@ const DuckCodeModalContent = () => {
         }
       }
     }
-    
+
     // Strategy 4: Try to get from CodeMirror if present
     if (!codeContent) {
       try {
@@ -295,7 +296,7 @@ const DuckCodeModalContent = () => {
         console.log('CodeMirror not accessible')
       }
     }
-    
+
     // Strategy 5: Look for code in pre/code blocks as fallback
     if (!codeContent) {
       const codeBlocks = document.querySelectorAll('pre code, .highlight code, [class*="code-block"]')
@@ -307,7 +308,7 @@ const DuckCodeModalContent = () => {
         }
       }
     }
-    
+
     if (codeContent && codeContent.trim().length > 0) {
       content.codeSection = cleanHtmlEntities(codeContent.trim())
     }
@@ -344,14 +345,14 @@ const DuckCodeModalContent = () => {
 
     // Hints (if available) - be very specific to avoid discussion content
     let allHints: string[] = []
-    
+
     // Strategy 1: Look for actual hint sections in the problem area
     // Avoid discussion and community content areas
-    const problemArea = document.querySelector('[data-track-load="description_content"]') || 
-                       document.querySelector('.question-content') || 
-                       document.querySelector('[class*="description"]') ||
-                       document.body
-    
+    const problemArea = document.querySelector('[data-track-load="description_content"]') ||
+      document.querySelector('.question-content') ||
+      document.querySelector('[class*="description"]') ||
+      document.body
+
     if (problemArea) {
       // Look for hint-specific elements within the problem area only
       const hintElements = problemArea.querySelectorAll([
@@ -360,7 +361,7 @@ const DuckCodeModalContent = () => {
         '[class*="hint"]:not([class*="discussion"]):not([class*="comment"])',
         '[data-track-load="hint"]'
       ].join(', '))
-      
+
       hintElements.forEach(el => {
         const text = el.textContent?.trim()
         // Only include if it's actually a hint (starts with "Hint" or contains hint-like content)
@@ -371,48 +372,48 @@ const DuckCodeModalContent = () => {
         )) {
           // Exclude discussion rules and community guidelines
           if (!text.toLowerCase().includes('discussion rules') &&
-              !text.toLowerCase().includes('community') &&
-              !text.toLowerCase().includes('guidelines') &&
-              !text.toLowerCase().includes('be respectful') &&
-              !text.toLowerCase().includes('no spam')) {
+            !text.toLowerCase().includes('community') &&
+            !text.toLowerCase().includes('guidelines') &&
+            !text.toLowerCase().includes('be respectful') &&
+            !text.toLowerCase().includes('no spam')) {
             allHints.push(text)
           }
         }
       })
     }
-    
+
     // Strategy 2: Look for numbered hints specifically
     const numberedHints = document.querySelectorAll('div, p, span')
     numberedHints.forEach(el => {
       const text = el.textContent?.trim()
-      if (text && 
-          (text.match(/^Hint\s*\d+/i) || text.match(/^Hint:/i)) &&
-          text.length > 20 && text.length < 1000) {
+      if (text &&
+        (text.match(/^Hint\s*\d+/i) || text.match(/^Hint:/i)) &&
+        text.length > 20 && text.length < 1000) {
         // Make sure it's not in a discussion area
-        const isInDiscussion = el.closest('[class*="discussion"]') || 
-                              el.closest('[class*="comment"]') ||
-                              el.closest('[class*="community"]')
+        const isInDiscussion = el.closest('[class*="discussion"]') ||
+          el.closest('[class*="comment"]') ||
+          el.closest('[class*="community"]')
         if (!isInDiscussion) {
           allHints.push(text)
         }
       }
     })
-    
+
     // Clean up and deduplicate hints
     const uniqueHints = [...new Set(allHints)]
       .map(hint => cleanHtmlEntities(hint))
       .filter(hint => {
         // Additional filtering to ensure quality
         const lower = hint.toLowerCase()
-        return hint.length > 20 && 
-               hint.length < 1000 && // Not too long
-               !lower.includes('discussion rules') &&
-               !lower.includes('community guidelines') &&
-               !lower.includes('be respectful') &&
-               (lower.includes('hint') || lower.includes('brute force') || lower.includes('approach'))
+        return hint.length > 20 &&
+          hint.length < 1000 && // Not too long
+          !lower.includes('discussion rules') &&
+          !lower.includes('community guidelines') &&
+          !lower.includes('be respectful') &&
+          (lower.includes('hint') || lower.includes('brute force') || lower.includes('approach'))
       })
       .slice(0, 3) // Limit to 3 hints
-    
+
     if (uniqueHints.length > 0) {
       content.hints = uniqueHints.join('\n\n')
     }
@@ -426,7 +427,7 @@ const DuckCodeModalContent = () => {
       '[class*="console"] [class*="input"]',
       '.execution-input'
     ]
-    
+
     for (const selector of inputSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
@@ -441,7 +442,7 @@ const DuckCodeModalContent = () => {
       '[class*="result"] [class*="input"]',
       '.testcase [class*="input"]'
     ].join(', '))
-    
+
     if (!content.lastExecutedInput && executionResults.length > 0) {
       for (const result of executionResults) {
         const text = result.textContent?.trim()
@@ -455,7 +456,7 @@ const DuckCodeModalContent = () => {
     // Runtime errors and exceptions - comprehensive scraping
     let allErrors: string[] = []
     let allExceptions: string[] = []
-    
+
     // Strategy 1: Look for "Runtime Error" headers and content
     const runtimeErrorElements = document.querySelectorAll('*')
     runtimeErrorElements.forEach(el => {
@@ -469,7 +470,7 @@ const DuckCodeModalContent = () => {
             allErrors.push(errorContent)
           }
         }
-        
+
         // Also check next siblings for error details
         let nextSibling = el.nextElementSibling
         while (nextSibling && allErrors.length < 3) {
@@ -481,7 +482,7 @@ const DuckCodeModalContent = () => {
         }
       }
     })
-    
+
     // Strategy 2: Look for error patterns in test result areas
     const testResultAreas = document.querySelectorAll([
       '[class*="test-result"]',
@@ -493,27 +494,27 @@ const DuckCodeModalContent = () => {
       '.error',
       '[class*="error"]'
     ].join(', '))
-    
+
     testResultAreas.forEach(area => {
       const text = area.textContent?.trim()
       if (text && text.length > 10) {
         // Check for runtime errors
         if (text.toLowerCase().includes('runtime error') ||
-            text.toLowerCase().includes('time limit exceeded') ||
-            text.toLowerCase().includes('memory limit exceeded')) {
+          text.toLowerCase().includes('time limit exceeded') ||
+          text.toLowerCase().includes('memory limit exceeded')) {
           allErrors.push(text)
         }
-        
+
         // Check for exceptions
         if (text.toLowerCase().includes('exception') ||
-            text.includes('Error:') ||
-            text.includes('at ') || // Stack trace indicator
-            text.includes('line ')) { // Line number indicator
+          text.includes('Error:') ||
+          text.includes('at ') || // Stack trace indicator
+          text.includes('line ')) { // Line number indicator
           allExceptions.push(text)
         }
       }
     })
-    
+
     // Strategy 3: Look for specific error message patterns
     const allTextElements = document.querySelectorAll('div, span, p, pre')
     allTextElements.forEach(el => {
@@ -521,34 +522,34 @@ const DuckCodeModalContent = () => {
       if (text && text.length > 5 && text.length < 2000) {
         // Runtime error patterns
         if (text.match(/runtime error/i) ||
-            text.match(/time limit exceeded/i) ||
-            text.match(/memory limit exceeded/i) ||
-            text.match(/wrong answer/i)) {
+          text.match(/time limit exceeded/i) ||
+          text.match(/memory limit exceeded/i) ||
+          text.match(/wrong answer/i)) {
           allErrors.push(text)
         }
-        
+
         // Exception patterns
         if (text.match(/exception/i) ||
-            text.match(/error:/i) ||
-            text.match(/at line \d+/i) ||
-            text.match(/\w+Exception/) ||
-            text.match(/\w+Error/)) {
+          text.match(/error:/i) ||
+          text.match(/at line \d+/i) ||
+          text.match(/\w+Exception/) ||
+          text.match(/\w+Error/)) {
           allExceptions.push(text)
         }
       }
     })
-    
+
     // Clean up and deduplicate
     const uniqueErrors = [...new Set(allErrors)]
       .map(error => cleanHtmlEntities(error))
       .filter(error => error.length > 10)
       .slice(0, 3) // Limit to avoid overwhelming
-    
+
     const uniqueExceptions = [...new Set(allExceptions)]
       .map(exception => cleanHtmlEntities(exception))
       .filter(exception => exception.length > 10)
       .slice(0, 3)
-    
+
     content.runtimeError = uniqueErrors.join('\n---\n')
     content.runtimeException = uniqueExceptions.join('\n---\n')
 
@@ -607,6 +608,9 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     }
 
     try {
+      // Set processing state
+      setConnectionStatus('connecting')
+
       // Capture current execution context
       const currentContent = scrapeLeetCodeContent()
       const context: InterviewContext = {
@@ -623,25 +627,33 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       // Get AI response with conversation history
       console.log('Processing user input:', userText)
       console.log('Current context:', context)
-      
+
       const result = await aiService.getInterviewResponse(userText, context)
-      
+
       console.log('Received AI result:', result)
-      
+
       // Log system prompt in bold and user message
       setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
       setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
       setTranscript(prev => prev + `\n\nInterviewer: ${result.response}`)
 
+      // Reset to connected before starting speech
+      setConnectionStatus('connected')
+
       // Convert to speech
       const audioBlob2 = await aiService.synthesizeSpeech(result.response)
       const audioUrl = URL.createObjectURL(audioBlob2)
       const audio = new Audio(audioUrl)
+
+      setIsSpeaking(true)
+      audio.onended = () => setIsSpeaking(false)
+      audio.onerror = () => setIsSpeaking(false)
       audio.play()
 
     } catch (error) {
       console.error('Error processing audio:', error)
       setTranscript(prev => prev + `\n\nError: ${error.message}`)
+      setConnectionStatus('connected') // Reset on error
     }
   }
 
@@ -650,7 +662,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
   // Start recording user audio
   const startRecording = async () => {
     if (isRecording) return
-    
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
@@ -707,20 +719,20 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
   const isShortcutPressed = (pressedKeys: Set<string>) => {
     const shortcut = parseShortcut(recordingShortcut)
     const expectedKeys = new Set<string>()
-    
+
     if (shortcut.ctrl) expectedKeys.add('control')
     if (shortcut.shift) expectedKeys.add('shift')
     if (shortcut.alt) expectedKeys.add('alt')
     if (shortcut.meta) expectedKeys.add('meta')
     if (shortcut.key) expectedKeys.add(shortcut.key)
-    
+
     // Check if all expected keys are pressed and no extra keys
     if (expectedKeys.size !== pressedKeys.size) return false
-    
+
     for (const key of expectedKeys) {
       if (!pressedKeys.has(key)) return false
     }
-    
+
     return true
   }
 
@@ -729,31 +741,31 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase()
       const newKeysPressed = new Set(keysPressed)
-      
+
       // Add modifier keys
       if (e.ctrlKey) newKeysPressed.add('control')
       if (e.shiftKey) newKeysPressed.add('shift')
       if (e.altKey) newKeysPressed.add('alt')
       if (e.metaKey) newKeysPressed.add('meta')
-      
+
       // Add the main key
       if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
         newKeysPressed.add(key)
       }
-      
+
       setKeysPressed(newKeysPressed)
-      
+
       // Check if shortcut is pressed
       if (isShortcutPressed(newKeysPressed)) {
         e.preventDefault()
         e.stopPropagation()
-        
+
         // Open modal if not visible
         if (!isVisible) {
           setIsVisible(true)
           setIsMinimized(false)
         }
-        
+
         // Start recording if not already recording
         if (!isRecording && isConnected) {
           startRecording()
@@ -763,21 +775,21 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
     const handleKeyUp = (e: KeyboardEvent) => {
       const newKeysPressed = new Set(keysPressed)
-      
+
       // Remove modifier keys
       if (!e.ctrlKey) newKeysPressed.delete('control')
       if (!e.shiftKey) newKeysPressed.delete('shift')
       if (!e.altKey) newKeysPressed.delete('alt')
       if (!e.metaKey) newKeysPressed.delete('meta')
-      
+
       // Remove the main key
       const key = e.key.toLowerCase()
       if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
         newKeysPressed.delete(key)
       }
-      
+
       setKeysPressed(newKeysPressed)
-      
+
       // Stop recording if shortcut is released and we were recording
       if (isRecording && !isShortcutPressed(newKeysPressed)) {
         stopRecording()
@@ -986,15 +998,15 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     // Calculate where the duck center is relative to the modal
     const duckCenterX = duckX + 30 // Duck width/2
     const duckCenterY = duckY + 30 // Duck height/2
-    
+
     // Calculate relative position within the modal (0-100%)
     const relativeX = ((duckCenterX - modalX) / 350) * 100 // 350 is modal width
     const relativeY = ((duckCenterY - modalY) / 400) * 100 // 400 is approximate modal height
-    
+
     // Clamp values to ensure they're within reasonable bounds
     const clampedX = Math.max(0, Math.min(100, relativeX))
     const clampedY = Math.max(0, Math.min(100, relativeY))
-    
+
     return `${clampedX}% ${clampedY}%`
   }
 
@@ -1010,30 +1022,30 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       const modalWidth = 350
       const modalHeight = 400 // Approximate modal height
       const padding = 20 // Minimum distance from screen edges
-      
+
       let modalX = duckPosition.x
       let modalY = duckPosition.y
-      
+
       // Adjust X position if modal would go off right edge
       if (modalX + modalWidth > window.innerWidth - padding) {
         modalX = window.innerWidth - modalWidth - padding
       }
-      
+
       // Adjust X position if modal would go off left edge
       if (modalX < padding) {
         modalX = padding
       }
-      
+
       // Adjust Y position if modal would go off bottom edge
       if (modalY + modalHeight > window.innerHeight - padding) {
         modalY = window.innerHeight - modalHeight - padding
       }
-      
+
       // Adjust Y position if modal would go off top edge
       if (modalY < padding) {
         modalY = padding
       }
-      
+
       // Set modal position with adjustments
       setPosition({
         x: modalX,
@@ -1069,6 +1081,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     setIsConnected(false)
     setConnectionStatus('disconnected')
     setAiService(null)
+    setIsSpeaking(false)
 
     stopRecording()
     setTranscript('Interview ended. Great job practicing!')
@@ -1080,6 +1093,20 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     } else {
       startRecording()
     }
+  }
+
+  // Get duck color based on current state
+  const getDuckColor = () => {
+    if (isRecording) {
+      return 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)' // Red when recording
+    }
+    if (connectionStatus === 'connecting') {
+      return 'linear-gradient(135deg, #fd7e14 0%, #e55a00 100%)' // Orange when processing/thinking
+    }
+    if (isSpeaking) {
+      return 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' // Green when talking/outputting TTS
+    }
+    return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' // Default purple
   }
 
   if (!isVisible) return null
@@ -1096,7 +1123,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           top: `${duckPosition.y}px`,
           width: '60px',
           height: '60px',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          background: getDuckColor(),
           borderRadius: '50%',
           display: 'flex',
           alignItems: 'center',
@@ -1158,22 +1185,22 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
               // Update duck position to current modal position
               const modalCenterX = position.x + 175 // Modal width/2 (350/2)
               const modalCenterY = position.y + 200 // Approximate modal height/2
-              
+
               const windowWidth = window.innerWidth
               const windowHeight = window.innerHeight
-              
+
               // Calculate distances to each edge from modal center
               const distanceToLeft = modalCenterX
               const distanceToRight = windowWidth - modalCenterX
               const distanceToTop = modalCenterY
               const distanceToBottom = windowHeight - modalCenterY
-              
+
               // Find the minimum distance
               const minDistance = Math.min(distanceToLeft, distanceToRight, distanceToTop, distanceToBottom)
-              
+
               let snapX = position.x
               let snapY = position.y
-              
+
               // Snap to the nearest edge
               if (minDistance === distanceToLeft) {
                 // Snap to left edge
@@ -1188,13 +1215,13 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
                 // Snap to bottom edge
                 snapY = windowHeight - 80
               }
-              
+
               setDuckPosition({
                 x: snapX,
                 y: snapY
               })
               setIsMinimized(true)
-              
+
               // Trigger snap animation after duck appears
               setTimeout(() => {
                 setIsSnapping(true)
