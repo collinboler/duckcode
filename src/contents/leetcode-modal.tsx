@@ -696,12 +696,51 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
           <button
             className="close-btn"
             onClick={() => {
-              // Update duck position to current modal position before minimizing
+              // Update duck position to current modal position
+              const modalCenterX = position.x + 175 // Modal width/2 (350/2)
+              const modalCenterY = position.y + 200 // Approximate modal height/2
+              
+              const windowWidth = window.innerWidth
+              const windowHeight = window.innerHeight
+              
+              // Calculate distances to each edge from modal center
+              const distanceToLeft = modalCenterX
+              const distanceToRight = windowWidth - modalCenterX
+              const distanceToTop = modalCenterY
+              const distanceToBottom = windowHeight - modalCenterY
+              
+              // Find the minimum distance
+              const minDistance = Math.min(distanceToLeft, distanceToRight, distanceToTop, distanceToBottom)
+              
+              let snapX = position.x
+              let snapY = position.y
+              
+              // Snap to the nearest edge
+              if (minDistance === distanceToLeft) {
+                // Snap to left edge
+                snapX = 20
+              } else if (minDistance === distanceToRight) {
+                // Snap to right edge
+                snapX = windowWidth - 80
+              } else if (minDistance === distanceToTop) {
+                // Snap to top edge
+                snapY = 20
+              } else if (minDistance === distanceToBottom) {
+                // Snap to bottom edge
+                snapY = windowHeight - 80
+              }
+              
               setDuckPosition({
-                x: position.x,
-                y: position.y
+                x: snapX,
+                y: snapY
               })
               setIsMinimized(true)
+              
+              // Trigger snap animation after duck appears
+              setTimeout(() => {
+                setIsSnapping(true)
+                setTimeout(() => setIsSnapping(false), 300)
+              }, 50)
             }}
           >
             ×
