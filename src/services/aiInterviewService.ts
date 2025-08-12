@@ -79,8 +79,21 @@ IMPORTANT OUTPUT FORMATTING:
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
     const formData = new FormData()
-    formData.append('file', audioBlob, 'audio.wav')
-    formData.append('model', 'whisper-1')
+    const blobType = audioBlob.type || 'audio/webm'
+    const extension = blobType.includes('wav')
+      ? 'wav'
+      : blobType.includes('mpeg') || blobType.includes('mp3')
+      ? 'mp3'
+      : blobType.includes('ogg')
+      ? 'ogg'
+      : blobType.includes('webm')
+      ? 'webm'
+      : 'wav'
+
+    const file = new File([audioBlob], `audio.${extension}`, { type: blobType })
+
+    formData.append('file', file)
+    formData.append('model', 'gpt-4o-mini-transcribe')
 
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -91,11 +104,16 @@ IMPORTANT OUTPUT FORMATTING:
     })
 
     if (!response.ok) {
-      throw new Error(`Transcription failed: ${response.statusText}`)
+      let errorDetail = ''
+      try {
+        // Try to include server error details for debugging
+        errorDetail = await response.text()
+      } catch {}
+      throw new Error(`Transcription failed: ${response.status} ${response.statusText} ${errorDetail}`)
     }
 
     const data = await response.json()
-    return data.text
+    return data.text || data?.result?.text || ''
   }
 
   async getInterviewResponse(userInput: string, context: InterviewContext): Promise<{ response: string, systemPrompt: string, userMessage: string }> {
