@@ -9,7 +9,7 @@ import {
   UserButton,
   useUser
 } from '@clerk/chrome-extension'
-import { AIInterviewService, type LeetCodeContent, type InterviewContext } from '../services/aiInterviewService'
+import { AIInterviewService, type InterviewContext } from '../services/aiInterviewService'
 
 export const config: PlasmoCSConfig = {
   matches: ["*://leetcode.com/*", "*://*.leetcode.com/*"]
@@ -97,6 +97,11 @@ const DuckCodeModalContent = () => {
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const pcRef = useRef<RTCPeerConnection | null>(null)
+  const dcRef = useRef<RTCDataChannel | null>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const [useRealtime, setUseRealtime] = useState(false)
 
   // Load recording shortcut from storage
   useEffect(() => {
@@ -234,8 +239,8 @@ const DuckCodeModalContent = () => {
     // Strategy 1: Try Monaco editor model content - multiple approaches
     try {
       // @ts-ignore - Monaco editor global
-      if (window.monaco && window.monaco.editor) {
-        const editors = window.monaco.editor.getEditors()
+      if ((window as any).monaco && (window as any).monaco.editor) {
+        const editors = (window as any).monaco.editor.getEditors()
         if (editors && editors.length > 0) {
           const editor = editors[0]
           codeContent = editor.getValue()
@@ -597,7 +602,7 @@ const DuckCodeModalContent = () => {
     return content
   }
 
-  // Initialize AI service
+  // Initialize AI service (Realtime via WebRTC using gpt-4o-mini-realtime-preview)
   const initializeRealtimeAPI = async () => {
     try {
       setConnectionStatus('connecting')
@@ -612,19 +617,141 @@ const DuckCodeModalContent = () => {
         return
       }
 
-      // Scrape current LeetCode content and set up AI service
+      // Scrape current LeetCode content for session instructions
       const content = scrapeLeetCodeContent()
       setLeetcodeContent(content)
 
-      // Initialize AI service with static context
-      const service = new AIInterviewService(apiKey)
-      service.setStaticContext(content)
-      setAiService(service)
+      // Create RTCPeerConnection and wire up audio
+      const pc = new RTCPeerConnection()
+      pcRef.current = pc
 
+      // Create remote audio element to play assistant audio
+      const remoteAudio = new Audio()
+      remoteAudio.autoplay = true
+      remoteAudioRef.current = remoteAudio
+      pc.ontrack = (e) => {
+        if (e.streams && e.streams[0]) {
+          remoteAudio.srcObject = e.streams[0]
+        }
+      }
+
+      // Acquire mic, add track disabled by default (enabled during hold-to-record)
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      micStreamRef.current = micStream
+      const micTrack = micStream.getAudioTracks()[0]
+      micTrack.enabled = false
+      pc.addTrack(micTrack, micStream)
+
+      // Data channel for session/config/events
+      const dc = pc.createDataChannel('oai-events')
+      dcRef.current = dc
+
+      dc.addEventListener('message', (e) => {
+        // Optional: handle transcripts or events in the future
+        // console.log('Realtime event:', e.data)
+      })
+
+      // Build offer and exchange SDP with OpenAI Realtime
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+
+      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview`, {
+        method: 'POST',
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/sdp'
+        }
+      })
+
+      const answer = { type: 'answer' as const, sdp: await sdpResponse.text() }
+      await pc.setRemoteDescription(answer)
+
+      // Wait for fully connected state
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`Realtime connection timeout: ${pc.connectionState}`)), 15000)
+        const handler = () => {
+          if (pc.connectionState === 'connected') {
+            clearTimeout(timeout)
+            pc.removeEventListener('connectionstatechange', handler)
+            resolve()
+          } else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+            clearTimeout(timeout)
+            pc.removeEventListener('connectionstatechange', handler)
+            reject(new Error(`Realtime connection failed: ${pc.connectionState}`))
+          }
+        }
+        pc.addEventListener('connectionstatechange', handler)
+      })
+
+      // After DC opens, update session instructions/voice
+      const instructions = `You are a mock coding interviewer helping someone practice technical interviews. Keep responses conversational and encouraging, 1-2 sentences.
+
+STATIC PROBLEM CONTEXT:
+- Problem: ${content.problemTitle}
+- Description: ${content.problemDescription}
+- Topics: ${content.topics || 'None'}
+- Hints: ${content.hints || 'None'}
+
+Focus on approach, edge cases, and feedback. Speak naturally as if in a real interview.`
+
+      const sendSessionUpdate = () => {
+        const sessionUpdate = {
+          type: 'session.update',
+          session: {
+            instructions,
+            voice: 'alloy',
+            input_audio_transcription: { model: 'whisper-1' },
+            temperature: 0.7
+          }
+        }
+        try {
+          dc.send(JSON.stringify(sessionUpdate))
+        } catch (err) {
+          console.warn('Failed to send session.update:', err)
+        }
+      }
+
+      if (dc.readyState === 'open') {
+        sendSessionUpdate()
+      } else {
+        dc.addEventListener('open', sendSessionUpdate, { once: true })
+      }
+
+      // Helper to push dynamic context updates before each user turn
+      const sendDynamicContextUpdate = () => {
+        try {
+          const current = scrapeLeetCodeContent()
+          const dynamicContext = [
+            'DYNAMIC CONTEXT:',
+            `- Current Code (with line numbers):`,
+            addLineNumbers(current.codeSection || 'No code written yet'),
+            current.lastExecutedInput ? `- Last Input: ${current.lastExecutedInput}` : '',
+            current.runtimeError ? `- Runtime Error: ${current.runtimeError}` : '',
+            current.runtimeException ? `- Exception: ${current.runtimeException}` : ''
+          ].filter(Boolean).join('\n')
+
+          const sessionUpdate2 = {
+            type: 'session.update',
+            session: {
+              instructions: `${instructions}\n\n${dynamicContext}`,
+              temperature: 0.7
+            }
+          }
+          dc.send(JSON.stringify(sessionUpdate2))
+        } catch (err) {
+          console.warn('Failed to send dynamic context update:', err)
+        }
+      }
+
+      // Expose for recording hooks
+      ;(window as any).__duckcode_sendDynamicContextUpdate = sendDynamicContextUpdate
+
+      setUseRealtime(true)
       setConnectionStatus('connected')
       setIsConnected(true)
 
-      setTranscript(`Ready for interview! 
+      setTranscript(`Ready for interview!
 
 Problem Context Loaded:
 - Problem: ${content.problemTitle}
@@ -632,7 +759,7 @@ Problem Context Loaded:
 - Topics: ${content.topics || 'None'}
 - Hints: ${content.hints || 'None'}
 
-Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to start speaking about your approach!`)
+Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to start speaking!`)
 
     } catch (error) {
       console.error('Failed to initialize:', error)
@@ -696,45 +823,59 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
 
 
-  // Start recording user audio
+  // Start recording user audio (Realtime = enable mic track; Fallback = MediaRecorder)
   const startRecording = async () => {
     if (isRecording) return
 
     let stream: MediaStream | null = null
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-      mediaRecorderRef.current = mediaRecorder
-      audioChunksRef.current = []
-      setIsRecording(true)
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-
-        // Ensure tracks are fully stopped after stopping
+      if (useRealtime && micStreamRef.current) {
+        // Push freshest dynamic context right before recording starts
         try {
-          if (mediaRecorderRef.current?.stream) {
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
-          }
+          const fn = (window as any).__duckcode_sendDynamicContextUpdate
+          if (fn) fn()
         } catch {}
-        mediaRecorderRef.current = null
+        // Toggle mic track on
+        const track = micStreamRef.current.getAudioTracks()[0]
+        if (track) track.enabled = true
+        setIsRecording(true)
+        setTranscript(prev => prev + '\n\nRecording... Speak now!')
+      } else {
+        // Fallback: capture and upload when stopped
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+        mediaRecorderRef.current = mediaRecorder
+        audioChunksRef.current = []
+        setIsRecording(true)
 
-        // Set processing state immediately to avoid purple gap
-        setConnectionStatus('connecting')
-        setIsRecording(false)
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data)
+          }
+        }
 
-        // Process the audio with OpenAI
-        await processAudioWithOpenAI(audioBlob)
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+
+          // Ensure tracks are fully stopped after stopping
+          try {
+            if (mediaRecorderRef.current?.stream) {
+              mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+            }
+          } catch {}
+          mediaRecorderRef.current = null
+
+          // Set processing state immediately to avoid purple gap
+          setConnectionStatus('connecting')
+          setIsRecording(false)
+
+          // Process the audio with OpenAI
+          await processAudioWithOpenAI(audioBlob)
+        }
+
+        mediaRecorder.start()
+        setTranscript(prev => prev + '\n\nRecording... Speak now!')
       }
-
-      mediaRecorder.start()
-      setTranscript(prev => prev + '\n\nRecording... Speak now!')
     } catch (error) {
       console.error('Error starting recording:', error)
       // Best-effort: stop any acquired tracks if we failed mid-way
@@ -749,20 +890,28 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
   // Stop recording
   const stopRecording = () => {
-    const recorder = mediaRecorderRef.current
-    if (recorder) {
+    if (useRealtime && micStreamRef.current) {
       try {
-        if (recorder.state !== 'inactive') {
-          recorder.stop()
-          setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
-        }
+        const track = micStreamRef.current.getAudioTracks()[0]
+        if (track) track.enabled = false
       } catch {}
-      try {
-        recorder.stream.getTracks().forEach(track => track.stop())
-      } catch {}
+      setIsRecording(false)
+    } else {
+      const recorder = mediaRecorderRef.current
+      if (recorder) {
+        try {
+          if (recorder.state !== 'inactive') {
+            recorder.stop()
+            setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
+          }
+        } catch {}
+        try {
+          recorder.stream.getTracks().forEach(track => track.stop())
+        } catch {}
+      }
+      mediaRecorderRef.current = null
+      setIsRecording(false)
     }
-    mediaRecorderRef.current = null
-    setIsRecording(false)
   }
 
   // Parse shortcut string into key components
@@ -1170,6 +1319,17 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
     stopRecording()
     setTranscript('Interview ended. Great job practicing!')
+
+    // Close realtime resources
+    try { dcRef.current?.close() } catch {}
+    try { pcRef.current?.close() } catch {}
+    dcRef.current = null
+    pcRef.current = null
+    try {
+      micStreamRef.current?.getTracks().forEach(t => t.stop())
+    } catch {}
+    micStreamRef.current = null
+    setUseRealtime(false)
   }
 
   // Cleanup on unmount: ensure microphone is released
@@ -1185,6 +1345,12 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           } catch {}
           mediaRecorderRef.current = null
         }
+        try { dcRef.current?.close() } catch {}
+        try { pcRef.current?.close() } catch {}
+        dcRef.current = null
+        pcRef.current = null
+        try { micStreamRef.current?.getTracks().forEach(t => t.stop()) } catch {}
+        micStreamRef.current = null
       } catch {}
     }
   }, [])
