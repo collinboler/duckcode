@@ -9,6 +9,7 @@ import {
   UserButton,
   useUser
 } from '@clerk/chrome-extension'
+import { AIInterviewService, type LeetCodeContent, type InterviewContext } from '../services/aiInterviewService'
 
 export const config: PlasmoCSConfig = {
   matches: ["*://leetcode.com/*", "*://*.leetcode.com/*"]
@@ -86,6 +87,7 @@ const DuckCodeModalContent = () => {
   const [duckDragOffset, setDuckDragOffset] = useState<Position>({ x: 0, y: 0 })
   const [isSnapping, setIsSnapping] = useState(false)
   const [dragStartPosition, setDragStartPosition] = useState<Position>({ x: 0, y: 0 })
+  const [aiService, setAiService] = useState<AIInterviewService | null>(null)
 
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -544,7 +546,7 @@ const DuckCodeModalContent = () => {
     return content
   }
 
-  // Initialize OpenAI Chat API (fallback since Realtime API has auth issues in browser)
+  // Initialize AI service
   const initializeRealtimeAPI = async () => {
     try {
       setConnectionStatus('connecting')
@@ -554,188 +556,83 @@ const DuckCodeModalContent = () => {
       const apiKey = result.openaiApiKey
 
       if (!apiKey) {
-        setTranscript('❌ Please configure your OpenAI API key in Settings.')
+        setTranscript('Please configure your OpenAI API key in Settings.')
         setConnectionStatus('disconnected')
         return
       }
 
-      // Scrape current LeetCode content
+      // Scrape current LeetCode content and set up AI service
       const content = scrapeLeetCodeContent()
       setLeetcodeContent(content)
 
+      // Initialize AI service with static context
+      const service = new AIInterviewService(apiKey)
+      service.setStaticContext(content)
+      setAiService(service)
+
       setConnectionStatus('connected')
       setIsConnected(true)
-      // Process hints - limit to first 3 and clean them up
-      const processedHints = content.hints ? 
-        content.hints.split('\n\n')
-          .filter(hint => hint.trim().length > 10)
-          .slice(0, 3)
-          .map((hint, index) => `Hint ${index + 1}: ${hint.trim()}`)
-          .join('\n\n') 
-        : 'None available'
 
-      setTranscript(`🎤 Ready for interview! 
+      setTranscript(`Ready for interview! 
 
-📋 Problem Context Loaded:
+Problem Context Loaded:
 - Problem: ${content.problemTitle}
+- Description: ${content.problemDescription || 'None'}
+- Topics: ${content.topics || 'None'}
+- Hints: ${content.hints || 'None'}
 
-- Description: ${content.problemDescription}
-
-- Current Code: ${content.codeSection || 'No code written yet'}
-
-- Test Cases: ${content.testCases || 'None found'}
-
-- Hints: ${processedHints}
-
-Click "Record" to start speaking about your approach!`)
+Click Record to start speaking about your approach!`)
 
     } catch (error) {
       console.error('Failed to initialize:', error)
       setConnectionStatus('disconnected')
-      setTranscript('❌ Failed to initialize. Please check your API key and try again.')
+      setTranscript('Failed to initialize. Please check your API key and try again.')
     }
   }
 
-  // Send audio to OpenAI and get response
+  // Process audio using the AI service
   const processAudioWithOpenAI = async (audioBlob: Blob) => {
+    if (!aiService) {
+      setTranscript(prev => prev + '\n\nAI service not initialized.')
+      return
+    }
+
     try {
-      const result = await chrome.storage.sync.get(['openaiApiKey'])
-      const apiKey = result.openaiApiKey
-
-      if (!apiKey) {
-        setTranscript(prev => prev + '\n\n❌ API key not found.')
-        return
-      }
-
-      // Capture current code and execution context at the moment of recording
+      // Capture current execution context
       const currentContent = scrapeLeetCodeContent()
-      const currentCode = currentContent.codeSection || 'No code written yet'
-      
-      console.log('DEBUG - Scraped content:', {
-        code: currentCode.substring(0, 100),
-        input: currentContent.lastExecutedInput,
-        runtimeError: currentContent.runtimeError,
-        runtimeException: currentContent.runtimeException
-      })
-
-      // First, transcribe the audio using Whisper
-      const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: (() => {
-          const formData = new FormData()
-          formData.append('file', audioBlob, 'audio.wav')
-          formData.append('model', 'whisper-1')
-          return formData
-        })()
-      })
-
-      if (!transcriptionResponse.ok) {
-        throw new Error(`Transcription failed: ${transcriptionResponse.statusText}`)
+      const context: InterviewContext = {
+        currentCode: currentContent.codeSection || 'No code written yet',
+        lastExecutedInput: currentContent.lastExecutedInput || '',
+        runtimeError: currentContent.runtimeError || '',
+        runtimeException: currentContent.runtimeException || ''
       }
 
-      const transcriptionData = await transcriptionResponse.json()
-      const userText = transcriptionData.text
+      // Transcribe audio
+      const userText = await aiService.transcribeAudio(audioBlob)
+      setTranscript(prev => prev + `\n\nYou: ${userText}`)
 
-      setTranscript(prev => prev + `\n\n👤 You: ${userText}`)
+      // Get AI response with conversation history
+      console.log('Processing user input:', userText)
+      console.log('Current context:', context)
       
-      // Show comprehensive debugging info - what's being sent to AI
-      setTranscript(prev => prev + `\n\n🔧 DEBUG - Data sent to AI:`)
+      const result = await aiService.getInterviewResponse(userText, context)
       
-      if (currentCode !== 'No code written yet') {
-        setTranscript(prev => prev + `\n📝 Current Code: ${currentCode}`)
-      } else {
-        setTranscript(prev => prev + `\n📝 Current Code: No code written yet`)
-      }
+      console.log('Received AI result:', result)
       
-      setTranscript(prev => prev + `\n📋 Problem: ${currentContent.problemTitle || 'None'}`)
-      setTranscript(prev => prev + `\n📖 Description: ${currentContent.problemDescription ? currentContent.problemDescription.substring(0, 100) + '...' : 'None'}`)
-      setTranscript(prev => prev + `\n🏷️ Topics: ${currentContent.topics || 'None'}`)
-      setTranscript(prev => prev + `\n🔍 Last Input: ${currentContent.lastExecutedInput || 'None'}`)
-      setTranscript(prev => prev + `\n❌ Runtime Error: ${currentContent.runtimeError || 'None'}`)
-      setTranscript(prev => prev + `\n⚠️ Exception: ${currentContent.runtimeException || 'None'}`)
-      setTranscript(prev => prev + `\n💡 Hints: ${currentContent.hints || 'None'}`)
-      setTranscript(prev => prev + `\n🔧 END DEBUG\n`)
+      // Log system prompt in bold and user message
+      setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
+      setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
+      setTranscript(prev => prev + `\n\nInterviewer: ${result.response}`)
 
-      // Now send to GPT-4 for interview response
-      const chatResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a mock coding interviewer helping someone practice technical interviews. 
-
-Current LeetCode Problem Context:
-- Problem: ${leetcodeContent?.problemTitle}
-- Description: ${leetcodeContent?.problemDescription}
-- Topics/Tags: ${currentContent.topics || 'None specified'}
-- Test Cases: ${leetcodeContent?.testCases}
-- Hints: ${leetcodeContent?.hints || 'No hints available'}
-
-Current User's Code (at time of recording):
-${currentCode}
-
-Latest Execution Context:
-- Last Input: ${currentContent.lastExecutedInput || 'No recent execution'}
-- Runtime Error: ${currentContent.runtimeError || 'None'}
-- Runtime Exception: ${currentContent.runtimeException || 'None'}
-
-Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. You can see their current code and any execution results/errors. The topics/tags give you insight into what algorithms or data structures are relevant. If there are runtime errors or exceptions, help them debug and understand what went wrong. If hints are available, you can reference them subtly to guide the candidate without being too direct. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
-            },
-            {
-              role: 'user',
-              content: userText
-            }
-          ],
-          max_tokens: 150,
-          temperature: 0.7
-        })
-      })
-
-      if (!chatResponse.ok) {
-        throw new Error(`Chat API failed: ${chatResponse.statusText}`)
-      }
-
-      const chatData = await chatResponse.json()
-      const aiResponse = chatData.choices[0]?.message?.content || 'I understand. Please continue.'
-
-      setTranscript(prev => prev + `\n\n🤖 Interviewer: ${aiResponse}`)
-
-      // Convert AI response to speech using TTS
-      const ttsResponse = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'tts-1',
-          input: aiResponse,
-          voice: 'alloy',
-          response_format: 'mp3'
-        })
-      })
-
-      if (ttsResponse.ok) {
-        const audioArrayBuffer = await ttsResponse.arrayBuffer()
-        const audioBlob = new Blob([audioArrayBuffer], { type: 'audio/mpeg' })
-        const audioUrl = URL.createObjectURL(audioBlob)
-
-        const audio = new Audio(audioUrl)
-        audio.play()
-      }
+      // Convert to speech
+      const audioBlob2 = await aiService.synthesizeSpeech(result.response)
+      const audioUrl = URL.createObjectURL(audioBlob2)
+      const audio = new Audio(audioUrl)
+      audio.play()
 
     } catch (error) {
       console.error('Error processing audio:', error)
-      setTranscript(prev => prev + `\n\n❌ Error: ${error.message}`)
+      setTranscript(prev => prev + `\n\nError: ${error.message}`)
     }
   }
 
@@ -763,10 +660,10 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
       }
 
       mediaRecorder.start()
-      setTranscript(prev => prev + '\n\n🎤 Recording... Speak now!')
+      setTranscript(prev => prev + '\n\nRecording... Speak now!')
     } catch (error) {
       console.error('Error starting recording:', error)
-      setTranscript(prev => prev + '\n\n❌ Microphone access denied. Please allow microphone access.')
+      setTranscript(prev => prev + '\n\nMicrophone access denied. Please allow microphone access.')
     }
   }
 
@@ -775,7 +672,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
-      setTranscript(prev => prev + '\n\n⏹️ Recording stopped. Processing...')
+      setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
     }
   }
 
@@ -1011,9 +908,10 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
     setInterviewMode(false)
     setIsConnected(false)
     setConnectionStatus('disconnected')
+    setAiService(null)
 
     stopRecording()
-    setTranscript('✅ Interview ended. Great job practicing!')
+    setTranscript('Interview ended. Great job practicing!')
   }
 
   const toggleRecording = () => {
