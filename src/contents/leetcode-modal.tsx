@@ -838,6 +838,23 @@ Click Record to start speaking about your approach!`)
     setDuckPosition({ x: newX, y: newY })
   }
 
+  // Calculate transform origin based on duck position relative to modal
+  const getTransformOrigin = (duckX: number, duckY: number, modalX: number, modalY: number) => {
+    // Calculate where the duck center is relative to the modal
+    const duckCenterX = duckX + 30 // Duck width/2
+    const duckCenterY = duckY + 30 // Duck height/2
+    
+    // Calculate relative position within the modal (0-100%)
+    const relativeX = ((duckCenterX - modalX) / 350) * 100 // 350 is modal width
+    const relativeY = ((duckCenterY - modalY) / 400) * 100 // 400 is approximate modal height
+    
+    // Clamp values to ensure they're within reasonable bounds
+    const clampedX = Math.max(0, Math.min(100, relativeX))
+    const clampedY = Math.max(0, Math.min(100, relativeY))
+    
+    return `${clampedX}% ${clampedY}%`
+  }
+
   const handleDuckClick = (e: React.MouseEvent) => {
     // Only open if it wasn't a drag (check if mouse moved less than 5px)
     const dragDistance = Math.sqrt(
@@ -967,7 +984,8 @@ Click Record to start speaking about your approach!`)
         left: `${position.x}px`,
         top: `${position.y}px`,
         zIndex: 10000,
-        cursor: isDragging ? 'grabbing' : 'grab'
+        cursor: isDragging ? 'grabbing' : 'grab',
+        transformOrigin: isOpening ? getTransformOrigin(duckPosition.x, duckPosition.y, position.x, position.y) : 'center'
       }}
     >
       <div className="modal-header" onMouseDown={handleMouseDown}>
@@ -1138,8 +1156,7 @@ Click Record to start speaking about your approach!`)
 
         @keyframes modalOpen {
           0% {
-            width: 60px;
-            height: 60px;
+            transform: scale(0.17); /* 60px / 350px ≈ 0.17 */
             border-radius: 50%;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             box-shadow: 
@@ -1148,8 +1165,7 @@ Click Record to start speaking about your approach!`)
               0 0 0 4px rgba(102, 126, 234, 0.3);
           }
           100% {
-            width: 350px;
-            height: auto;
+            transform: scale(1);
             border-radius: 16px;
             background: rgba(255, 255, 255, 0.95);
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
