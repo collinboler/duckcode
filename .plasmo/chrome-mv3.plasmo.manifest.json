@@ -36,15 +36,6 @@
   "content_scripts": [
     {
       "matches": [
-        "*://leetcode.com/*",
-        "*://*.leetcode.com/*"
-      ],
-      "js": [
-        "static/contents/leetcode-modal.tsx"
-      ]
-    },
-    {
-      "matches": [
         "<all_urls>"
       ],
       "js": [
@@ -53,6 +44,15 @@
       "exclude_matches": [
         "*://leetcode.com/*",
         "*://*.leetcode.com/*"
+      ]
+    },
+    {
+      "matches": [
+        "*://leetcode.com/*",
+        "*://*.leetcode.com/*"
+      ],
+      "js": [
+        "static/contents/leetcode-modal.tsx"
       ]
     }
   ],

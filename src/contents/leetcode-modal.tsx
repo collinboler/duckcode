@@ -88,11 +88,20 @@ const DuckCodeModalContent = () => {
   const [isSnapping, setIsSnapping] = useState(false)
   const [dragStartPosition, setDragStartPosition] = useState<Position>({ x: 0, y: 0 })
   const [aiService, setAiService] = useState<AIInterviewService | null>(null)
-
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
+  const [keysPressed, setKeysPressed] = useState<Set<string>>(new Set())
 
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+
+  // Load recording shortcut from storage
+  useEffect(() => {
+    chrome.storage.sync.get(['recordingShortcut'], (result) => {
+      setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
+    })
+  }, [])
 
   // Initialize duck position
   useEffect(() => {
@@ -581,7 +590,7 @@ Problem Context Loaded:
 - Topics: ${content.topics || 'None'}
 - Hints: ${content.hints || 'None'}
 
-Click Record to start speaking about your approach!`)
+Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to start speaking about your approach!`)
 
     } catch (error) {
       console.error('Failed to initialize:', error)
@@ -640,11 +649,14 @@ Click Record to start speaking about your approach!`)
 
   // Start recording user audio
   const startRecording = async () => {
+    if (isRecording) return
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
+      setIsRecording(true)
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -654,6 +666,7 @@ Click Record to start speaking about your approach!`)
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        setIsRecording(false)
 
         // Process the audio with OpenAI
         await processAudioWithOpenAI(audioBlob)
@@ -663,6 +676,7 @@ Click Record to start speaking about your approach!`)
       setTranscript(prev => prev + '\n\nRecording... Speak now!')
     } catch (error) {
       console.error('Error starting recording:', error)
+      setIsRecording(false)
       setTranscript(prev => prev + '\n\nMicrophone access denied. Please allow microphone access.')
     }
   }
@@ -673,6 +687,135 @@ Click Record to start speaking about your approach!`)
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
       setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
+    }
+    setIsRecording(false)
+  }
+
+  // Parse shortcut string into key components
+  const parseShortcut = (shortcut: string) => {
+    const keys = shortcut.toLowerCase().split('+')
+    return {
+      ctrl: keys.includes('ctrl'),
+      shift: keys.includes('shift'),
+      alt: keys.includes('alt'),
+      meta: keys.includes('cmd') || keys.includes('meta'),
+      key: keys.find(k => !['ctrl', 'shift', 'alt', 'cmd', 'meta'].includes(k)) || ''
+    }
+  }
+
+  // Check if current pressed keys match the shortcut
+  const isShortcutPressed = (pressedKeys: Set<string>) => {
+    const shortcut = parseShortcut(recordingShortcut)
+    const expectedKeys = new Set<string>()
+    
+    if (shortcut.ctrl) expectedKeys.add('control')
+    if (shortcut.shift) expectedKeys.add('shift')
+    if (shortcut.alt) expectedKeys.add('alt')
+    if (shortcut.meta) expectedKeys.add('meta')
+    if (shortcut.key) expectedKeys.add(shortcut.key)
+    
+    // Check if all expected keys are pressed and no extra keys
+    if (expectedKeys.size !== pressedKeys.size) return false
+    
+    for (const key of expectedKeys) {
+      if (!pressedKeys.has(key)) return false
+    }
+    
+    return true
+  }
+
+  // Global keyboard event handlers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+      const newKeysPressed = new Set(keysPressed)
+      
+      // Add modifier keys
+      if (e.ctrlKey) newKeysPressed.add('control')
+      if (e.shiftKey) newKeysPressed.add('shift')
+      if (e.altKey) newKeysPressed.add('alt')
+      if (e.metaKey) newKeysPressed.add('meta')
+      
+      // Add the main key
+      if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+        newKeysPressed.add(key)
+      }
+      
+      setKeysPressed(newKeysPressed)
+      
+      // Check if shortcut is pressed
+      if (isShortcutPressed(newKeysPressed)) {
+        e.preventDefault()
+        e.stopPropagation()
+        
+        // Open modal if not visible
+        if (!isVisible) {
+          setIsVisible(true)
+          setIsMinimized(false)
+        }
+        
+        // Start recording if not already recording
+        if (!isRecording && isConnected) {
+          startRecording()
+        }
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const newKeysPressed = new Set(keysPressed)
+      
+      // Remove modifier keys
+      if (!e.ctrlKey) newKeysPressed.delete('control')
+      if (!e.shiftKey) newKeysPressed.delete('shift')
+      if (!e.altKey) newKeysPressed.delete('alt')
+      if (!e.metaKey) newKeysPressed.delete('meta')
+      
+      // Remove the main key
+      const key = e.key.toLowerCase()
+      if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+        newKeysPressed.delete(key)
+      }
+      
+      setKeysPressed(newKeysPressed)
+      
+      // Stop recording if shortcut is released and we were recording
+      if (isRecording && !isShortcutPressed(newKeysPressed)) {
+        stopRecording()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('keyup', handleKeyUp)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [keysPressed, isRecording, isVisible, isConnected, recordingShortcut])
+
+  // Listen for shortcut changes from settings
+  useEffect(() => {
+    const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
+      if (changes.recordingShortcut) {
+        setRecordingShortcut(changes.recordingShortcut.newValue || 'ctrl+shift+r')
+      }
+    }
+
+    chrome.storage.onChanged.addListener(handleStorageChange)
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange)
+  }, [])
+
+  // Mouse event handlers for hold-to-record button
+  const handleRecordMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!isConnected || isRecording) return
+    startRecording()
+  }
+
+  const handleRecordMouseUp = (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (isRecording) {
+      stopRecording()
     }
   }
 
@@ -1109,14 +1252,16 @@ Click Record to start speaking about your approach!`)
           ) : (
             <div className="interview-controls">
               <button
-                className={`record-btn ${mediaRecorderRef.current?.state === 'recording' ? 'recording' : ''}`}
-                onClick={toggleRecording}
+                className={`record-btn ${isRecording ? 'recording' : ''}`}
+                onMouseDown={handleRecordMouseDown}
+                onMouseUp={handleRecordMouseUp}
+                onMouseLeave={handleRecordMouseUp}
                 disabled={!isConnected}
               >
                 <span className="btn-icon">
-                  {mediaRecorderRef.current?.state === 'recording' ? '⏹️' : '🎤'}
+                  {isRecording ? '⏹️' : '🎤'}
                 </span>
-                {mediaRecorderRef.current?.state === 'recording' ? 'Stop' : 'Record'}
+                {isRecording ? 'Recording...' : 'Hold to Record'}
               </button>
 
               <button className="stop-btn" onClick={stopInterview}>
@@ -1341,6 +1486,11 @@ Click Record to start speaking about your approach!`)
           justify-content: center;
           gap: 6px;
           transition: all 0.2s;
+          user-select: none;
+        }
+
+        .record-btn {
+          flex: 2; /* Make record button wider */
         }
 
         .record-btn {

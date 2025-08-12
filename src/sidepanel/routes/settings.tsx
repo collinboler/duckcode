@@ -12,10 +12,12 @@ export const Settings = () => {
   const [tokensUsed, setTokensUsed] = useState('--')
   const [analysisCost, setAnalysisCost] = useState('$0.00')
   const [sessionCost, setSessionCost] = useState('$0.00')
+  const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
+  const [isCapturingShortcut, setIsCapturingShortcut] = useState(false)
 
   // Load settings from storage
   useEffect(() => {
-    chrome.storage.sync.get(['darkMode', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost'], (result) => {
+    chrome.storage.sync.get(['darkMode', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost', 'recordingShortcut'], (result) => {
       const isDarkMode = result.darkMode || false
       setDarkMode(isDarkMode)
       
@@ -27,6 +29,7 @@ export const Settings = () => {
       setTokensUsed(result.tokensUsed || '--')
       setAnalysisCost(result.analysisCost || '$0.00')
       setSessionCost(result.sessionCost || '$0.00')
+      setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
       
       // Ensure dark mode is applied to body when settings page loads
       if (isDarkMode) {
@@ -90,6 +93,46 @@ export const Settings = () => {
       tokensUsed: '--', 
       analysisCost: '$0.00', 
       sessionCost: '$0.00' 
+    })
+  }
+
+  const handleShortcutCapture = (e: React.KeyboardEvent) => {
+    if (!isCapturingShortcut) return
+    
+    e.preventDefault()
+    e.stopPropagation()
+    
+    const keys = []
+    if (e.ctrlKey) keys.push('ctrl')
+    if (e.shiftKey) keys.push('shift')
+    if (e.altKey) keys.push('alt')
+    if (e.metaKey) keys.push('cmd')
+    
+    // Add the main key (not modifier keys)
+    if (e.key && !['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+      keys.push(e.key.toLowerCase())
+    }
+    
+    if (keys.length > 1) { // At least one modifier + one key
+      const shortcut = keys.join('+')
+      setRecordingShortcut(shortcut)
+      setIsCapturingShortcut(false)
+      
+      // Save to storage
+      chrome.storage.sync.set({ recordingShortcut: shortcut })
+    }
+  }
+
+  const startShortcutCapture = () => {
+    setIsCapturingShortcut(true)
+    setRecordingShortcut('Press keys...')
+  }
+
+  const cancelShortcutCapture = () => {
+    setIsCapturingShortcut(false)
+    // Restore previous shortcut
+    chrome.storage.sync.get(['recordingShortcut'], (result) => {
+      setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
     })
   }
 
@@ -195,6 +238,42 @@ export const Settings = () => {
                 />
                 <span className="slider round"></span>
               </label>
+            </div>
+          </div>
+
+          {/* Recording Settings Section */}
+          <div className="settings-section">
+            <h3>🎤 Recording Settings</h3>
+            <div className="setting-item shortcut-setting">
+              <div className="shortcut-content">
+                <label>Recording Shortcut</label>
+                <p className="shortcut-description">
+                  Hold this key combination to open modal and record your response
+                </p>
+                <div className="shortcut-input-group">
+                  <input 
+                    type="text" 
+                    value={recordingShortcut}
+                    readOnly
+                    className="shortcut-display"
+                    onKeyDown={handleShortcutCapture}
+                    placeholder="Press keys..."
+                  />
+                  {isCapturingShortcut ? (
+                    <button onClick={cancelShortcutCapture} className="shortcut-btn cancel-btn">
+                      Cancel
+                    </button>
+                  ) : (
+                    <button onClick={startShortcutCapture} className="shortcut-btn change-btn">
+                      Change
+                    </button>
+                  )}
+                </div>
+                <div className="shortcut-help">
+                  <p>💡 Hold the shortcut keys to open modal and record. Release to stop recording.</p>
+                  <p>🖱️ You can also hold the Record button in the modal for the same functionality.</p>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -809,6 +888,138 @@ export const Settings = () => {
 
         :global(.dark-mode) .reset-cost-button:hover {
           background-color: #b91c1c;
+        }
+
+        .shortcut-setting {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .shortcut-content {
+          width: 100%;
+        }
+
+        .shortcut-content label {
+          font-size: 14px;
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 4px;
+          display: block;
+        }
+
+        .shortcut-description {
+          font-size: 12px;
+          color: #666;
+          margin-bottom: 12px;
+          line-height: 1.4;
+        }
+
+        .shortcut-input-group {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .shortcut-display {
+          flex: 1;
+          padding: 8px 12px;
+          border: 1px solid #e1e5e9;
+          border-radius: 6px;
+          font-size: 14px;
+          font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+          background: #f8f9fa;
+          color: #333;
+          text-align: center;
+          font-weight: 500;
+        }
+
+        .shortcut-display:focus {
+          outline: none;
+          border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+          background: white;
+        }
+
+        .shortcut-btn {
+          padding: 8px 16px;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .change-btn {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
+
+        .change-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .cancel-btn {
+          background: #6c757d;
+          color: white;
+        }
+
+        .cancel-btn:hover {
+          background: #5a6268;
+          transform: translateY(-1px);
+        }
+
+        :global(.dark-mode) .shortcut-content label {
+          color: #e5e5e5;
+        }
+
+        :global(.dark-mode) .shortcut-description {
+          color: #d1d5db;
+        }
+
+        :global(.dark-mode) .shortcut-display {
+          background-color: #374151;
+          border-color: #4b5563;
+          color: #e5e5e5;
+        }
+
+        :global(.dark-mode) .shortcut-display:focus {
+          background-color: #1f2937;
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+        }
+
+        :global(.dark-mode) .cancel-btn {
+          background: #6b7280;
+        }
+
+        :global(.dark-mode) .cancel-btn:hover {
+          background: #4b5563;
+        }
+
+        .shortcut-help {
+          margin-top: 12px;
+          padding: 12px;
+          background: #f0f8ff;
+          border-radius: 6px;
+          border-left: 3px solid #667eea;
+        }
+
+        .shortcut-help p {
+          margin: 4px 0;
+          font-size: 12px;
+          color: #555;
+          line-height: 1.4;
+        }
+
+        :global(.dark-mode) .shortcut-help {
+          background: #1e3a5f;
+          border-left-color: #60a5fa;
+        }
+
+        :global(.dark-mode) .shortcut-help p {
+          color: #d1d5db;
         }
       `}</style>
     </>
