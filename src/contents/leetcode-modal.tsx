@@ -41,6 +41,9 @@ interface LeetCodeContent {
   codeSection: string
   testCases: string
   hints: string
+  lastExecutedInput: string
+  runtimeError: string
+  runtimeException: string
 }
 
 // Get environment variables
@@ -123,7 +126,10 @@ const DuckCodeModalContent = () => {
       solutions: '',
       codeSection: '',
       testCases: '',
-      hints: ''
+      hints: '',
+      lastExecutedInput: '',
+      runtimeError: '',
+      runtimeException: ''
     }
 
     // Problem title
@@ -282,6 +288,141 @@ const DuckCodeModalContent = () => {
       content.hints = uniqueHints.join('\n\n')
     }
 
+    // Last executed input (from test case execution)
+    const inputSelectors = [
+      '[data-track-load="testcase_input"]',
+      '.testcase-input',
+      '[class*="input"]',
+      '.console-input',
+      '[class*="console"] [class*="input"]',
+      '.execution-input'
+    ]
+    
+    for (const selector of inputSelectors) {
+      const element = document.querySelector(selector)
+      if (element?.textContent?.trim()) {
+        content.lastExecutedInput = cleanHtmlEntities(element.textContent.trim())
+        break
+      }
+    }
+
+    // Also try to find input in execution results area
+    const executionResults = document.querySelectorAll([
+      '[class*="execution"] [class*="input"]',
+      '[class*="result"] [class*="input"]',
+      '.testcase [class*="input"]'
+    ].join(', '))
+    
+    if (!content.lastExecutedInput && executionResults.length > 0) {
+      for (const result of executionResults) {
+        const text = result.textContent?.trim()
+        if (text && text.length > 0) {
+          content.lastExecutedInput = cleanHtmlEntities(text)
+          break
+        }
+      }
+    }
+
+    // Runtime errors and exceptions - comprehensive scraping
+    let allErrors: string[] = []
+    let allExceptions: string[] = []
+    
+    // Strategy 1: Look for "Runtime Error" headers and content
+    const runtimeErrorElements = document.querySelectorAll('*')
+    runtimeErrorElements.forEach(el => {
+      const text = el.textContent?.trim()
+      if (text === 'Runtime Error' || text === 'runtime error') {
+        // Found runtime error header, get the error content from siblings or parent
+        const parent = el.parentElement
+        if (parent) {
+          const errorContent = parent.textContent?.trim()
+          if (errorContent && errorContent.length > text.length) {
+            allErrors.push(errorContent)
+          }
+        }
+        
+        // Also check next siblings for error details
+        let nextSibling = el.nextElementSibling
+        while (nextSibling && allErrors.length < 3) {
+          const siblingText = nextSibling.textContent?.trim()
+          if (siblingText && siblingText.length > 10) {
+            allErrors.push(siblingText)
+          }
+          nextSibling = nextSibling.nextElementSibling
+        }
+      }
+    })
+    
+    // Strategy 2: Look for error patterns in test result areas
+    const testResultAreas = document.querySelectorAll([
+      '[class*="test-result"]',
+      '[class*="testcase"]',
+      '[class*="execution"]',
+      '[class*="result"]',
+      '[class*="console"]',
+      '[class*="output"]',
+      '.error',
+      '[class*="error"]'
+    ].join(', '))
+    
+    testResultAreas.forEach(area => {
+      const text = area.textContent?.trim()
+      if (text && text.length > 10) {
+        // Check for runtime errors
+        if (text.toLowerCase().includes('runtime error') ||
+            text.toLowerCase().includes('time limit exceeded') ||
+            text.toLowerCase().includes('memory limit exceeded')) {
+          allErrors.push(text)
+        }
+        
+        // Check for exceptions
+        if (text.toLowerCase().includes('exception') ||
+            text.includes('Error:') ||
+            text.includes('at ') || // Stack trace indicator
+            text.includes('line ')) { // Line number indicator
+          allExceptions.push(text)
+        }
+      }
+    })
+    
+    // Strategy 3: Look for specific error message patterns
+    const allTextElements = document.querySelectorAll('div, span, p, pre')
+    allTextElements.forEach(el => {
+      const text = el.textContent?.trim()
+      if (text && text.length > 5 && text.length < 2000) {
+        // Runtime error patterns
+        if (text.match(/runtime error/i) ||
+            text.match(/time limit exceeded/i) ||
+            text.match(/memory limit exceeded/i) ||
+            text.match(/wrong answer/i)) {
+          allErrors.push(text)
+        }
+        
+        // Exception patterns
+        if (text.match(/exception/i) ||
+            text.match(/error:/i) ||
+            text.match(/at line \d+/i) ||
+            text.match(/\w+Exception/) ||
+            text.match(/\w+Error/)) {
+          allExceptions.push(text)
+        }
+      }
+    })
+    
+    // Clean up and deduplicate
+    const uniqueErrors = [...new Set(allErrors)]
+      .map(error => cleanHtmlEntities(error))
+      .filter(error => error.length > 10)
+      .slice(0, 3) // Limit to avoid overwhelming
+    
+    const uniqueExceptions = [...new Set(allExceptions)]
+      .map(exception => cleanHtmlEntities(exception))
+      .filter(exception => exception.length > 10)
+      .slice(0, 3)
+    
+    content.runtimeError = uniqueErrors.join('\n---\n')
+    content.runtimeException = uniqueExceptions.join('\n---\n')
+
     return content
   }
 
@@ -348,7 +489,16 @@ Click "Record" to start speaking about your approach!`)
         return
       }
 
-      // Process audio blob directly
+      // Capture current code and execution context at the moment of recording
+      const currentContent = scrapeLeetCodeContent()
+      const currentCode = currentContent.codeSection || 'No code written yet'
+      
+      console.log('DEBUG - Scraped content:', {
+        code: currentCode.substring(0, 100),
+        input: currentContent.lastExecutedInput,
+        runtimeError: currentContent.runtimeError,
+        runtimeException: currentContent.runtimeException
+      })
 
       // First, transcribe the audio using Whisper
       const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -372,6 +522,22 @@ Click "Record" to start speaking about your approach!`)
       const userText = transcriptionData.text
 
       setTranscript(prev => prev + `\n\n👤 You: ${userText}`)
+      
+      // Show comprehensive debugging info - what's being sent to AI
+      setTranscript(prev => prev + `\n\n🔧 DEBUG - Data sent to AI:`)
+      
+      if (currentCode !== 'No code written yet') {
+        setTranscript(prev => prev + `\n📝 Current Code: ${currentCode}`)
+      } else {
+        setTranscript(prev => prev + `\n📝 Current Code: No code written yet`)
+      }
+      
+      setTranscript(prev => prev + `\n🔍 Last Input: ${currentContent.lastExecutedInput || 'None'}`)
+      setTranscript(prev => prev + `\n❌ Runtime Error: ${currentContent.runtimeError || 'None'}`)
+      setTranscript(prev => prev + `\n⚠️ Exception: ${currentContent.runtimeException || 'None'}`)
+      setTranscript(prev => prev + `\n💡 Hints: ${currentContent.hints || 'None'}`)
+      setTranscript(prev => prev + `\n📋 Problem: ${currentContent.problemTitle || 'None'}`)
+      setTranscript(prev => prev + `\n🔧 END DEBUG\n`)
 
       // Now send to GPT-4 for interview response
       const chatResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -390,11 +556,18 @@ Click "Record" to start speaking about your approach!`)
 Current LeetCode Problem Context:
 - Problem: ${leetcodeContent?.problemTitle}
 - Description: ${leetcodeContent?.problemDescription}
-- Current Code: ${leetcodeContent?.codeSection || 'No code written yet'}
 - Test Cases: ${leetcodeContent?.testCases}
 - Hints: ${leetcodeContent?.hints || 'No hints available'}
 
-Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. If hints are available, you can reference them subtly to guide the candidate without being too direct. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
+Current User's Code (at time of recording):
+${currentCode}
+
+Latest Execution Context:
+- Last Input: ${currentContent.lastExecutedInput || 'No recent execution'}
+- Runtime Error: ${currentContent.runtimeError || 'None'}
+- Runtime Exception: ${currentContent.runtimeException || 'None'}
+
+Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. You can see their current code and any execution results/errors. If there are runtime errors or exceptions, help them debug and understand what went wrong. If hints are available, you can reference them subtly to guide the candidate without being too direct. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
             },
             {
               role: 'user',
