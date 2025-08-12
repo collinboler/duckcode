@@ -101,6 +101,7 @@ const DuckCodeModalContent = () => {
   const dcRef = useRef<RTCDataChannel | null>(null)
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
+  const audioSenderRef = useRef<RTCRtpSender | null>(null)
   const [useRealtime, setUseRealtime] = useState(false)
 
   // Load recording shortcut from storage
@@ -634,21 +635,40 @@ const DuckCodeModalContent = () => {
           remoteAudio.srcObject = e.streams[0]
         }
       }
+      // Reflect speaking state via audio element events
+      remoteAudio.addEventListener('playing', () => {
+        setIsSpeaking(true)
+        setConnectionStatus('connected')
+      })
+      remoteAudio.addEventListener('pause', () => setIsSpeaking(false))
+      remoteAudio.addEventListener('ended', () => setIsSpeaking(false))
 
-      // Acquire mic, add track disabled by default (enabled during hold-to-record)
+      // Acquire mic once to establish sender; immediately detach to release device until recording
       const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      micStreamRef.current = micStream
       const micTrack = micStream.getAudioTracks()[0]
       micTrack.enabled = false
-      pc.addTrack(micTrack, micStream)
+      const sender = pc.addTrack(micTrack, micStream)
+      audioSenderRef.current = sender
+      try { await sender.replaceTrack(null) } catch {}
+      try { micStream.getTracks().forEach(t => t.stop()) } catch {}
+      micStreamRef.current = null
 
       // Data channel for session/config/events
       const dc = pc.createDataChannel('oai-events')
       dcRef.current = dc
 
       dc.addEventListener('message', (e) => {
-        // Optional: handle transcripts or events in the future
-        // console.log('Realtime event:', e.data)
+        try {
+          if (typeof e.data === 'string') {
+            const evt = JSON.parse(e.data)
+            if (evt?.type === 'response.done') {
+              setIsSpeaking(false)
+              setConnectionStatus('connected')
+            }
+          }
+        } catch {
+          // ignore non-JSON events
+        }
       })
 
       // Build offer and exchange SDP with OpenAI Realtime
@@ -702,7 +722,9 @@ Focus on approach, edge cases, and feedback. Speak naturally as if in a real int
             instructions,
             voice: 'alloy',
             input_audio_transcription: { model: 'whisper-1' },
-            temperature: 0.7
+            temperature: 0.7,
+            // Do not auto-respond; we'll request a response when user stops speaking
+            turn_detection: { type: 'server_vad', create_response: false, interrupt_response: true }
           }
         }
         try {
@@ -735,7 +757,9 @@ Focus on approach, edge cases, and feedback. Speak naturally as if in a real int
             type: 'session.update',
             session: {
               instructions: `${instructions}\n\n${dynamicContext}`,
-              temperature: 0.7
+              temperature: 0.7,
+              // Wait until user finishes speaking to generate a response
+              turn_detection: { type: 'server_vad', create_response: false, interrupt_response: true }
             }
           }
           dc.send(JSON.stringify(sessionUpdate2))
@@ -829,15 +853,22 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
     let stream: MediaStream | null = null
     try {
-      if (useRealtime && micStreamRef.current) {
+      if (useRealtime) {
         // Push freshest dynamic context right before recording starts
         try {
           const fn = (window as any).__duckcode_sendDynamicContextUpdate
           if (fn) fn()
         } catch {}
-        // Toggle mic track on
+        // Ensure we have an active mic stream and attach it to the existing sender
+        if (!micStreamRef.current) {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          micStreamRef.current = stream
+        }
         const track = micStreamRef.current.getAudioTracks()[0]
-        if (track) track.enabled = true
+        if (audioSenderRef.current && track) {
+          try { await audioSenderRef.current.replaceTrack(track) } catch {}
+          track.enabled = true
+        }
         setIsRecording(true)
         setTranscript(prev => prev + '\n\nRecording... Speak now!')
       } else {
@@ -890,10 +921,24 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
   // Stop recording
   const stopRecording = () => {
-    if (useRealtime && micStreamRef.current) {
+    if (useRealtime) {
       try {
-        const track = micStreamRef.current.getAudioTracks()[0]
+        const track = micStreamRef.current?.getAudioTracks()[0]
         if (track) track.enabled = false
+        if (audioSenderRef.current) {
+          try { audioSenderRef.current.replaceTrack(null) } catch {}
+        }
+        if (micStreamRef.current) {
+          try { micStreamRef.current.getTracks().forEach(t => t.stop()) } catch {}
+          micStreamRef.current = null
+        }
+      } catch {}
+      // Request model response now that user finished speaking
+      try {
+        if (dcRef.current?.readyState === 'open') {
+          setConnectionStatus('connecting')
+          dcRef.current.send(JSON.stringify({ type: 'response.create' }))
+        }
       } catch {}
       setIsRecording(false)
     } else {
@@ -1377,6 +1422,14 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' // Default purple
   }
 
+  // Get duck animation based on current state
+  const getDuckAnimation = () => {
+    if (isRecording) return 'pulse-red 1.2s ease-in-out infinite'
+    if (connectionStatus === 'connecting') return 'flash-orange 1s steps(2, end) infinite'
+    if (isSpeaking) return 'pulse-green 1.4s ease-in-out infinite'
+    return 'none'
+  }
+
   // Add line numbers to code for better AI context
   const addLineNumbers = (code: string): string => {
     if (!code || code.trim() === 'No code written yet') {
@@ -1392,7 +1445,37 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     return paddedLines.join('\n')
   }
 
-  if (!isVisible) return null
+  if (!isVisible) {
+    if (isSpeaking) {
+      return (
+        <div
+          className="duck-minimized"
+          style={{
+            position: 'fixed',
+            left: `${duckPosition.x}px`,
+            top: `${duckPosition.y}px`,
+            width: '60px',
+            height: '60px',
+            background: getDuckColor(),
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '28px',
+            cursor: 'default',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15), 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 4px rgba(102, 126, 234, 0.3)',
+            zIndex: 9999,
+            userSelect: 'none',
+            animation: getDuckAnimation()
+          }}
+          title="DuckCode speaking"
+        >
+          🦆
+        </div>
+      )
+    }
+    return null
+  }
 
   // Show minimized duck emoji
   if (isMinimized) {
@@ -1417,7 +1500,8 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           zIndex: 9999,
           transition: isDuckDragging ? 'none' : 'all 0.3s ease',
           userSelect: 'none',
-          transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)'
+          transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)',
+          animation: getDuckAnimation()
         }}
         onMouseDown={handleDuckMouseDown}
         onClick={handleDuckClick}
@@ -1913,6 +1997,21 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
+        @keyframes pulse-red {
+          0% { transform: scale(1); box-shadow: 0 8px 25px rgba(220, 53, 69, 0.2); }
+          50% { transform: scale(1.06); box-shadow: 0 12px 30px rgba(220, 53, 69, 0.45); }
+          100% { transform: scale(1); box-shadow: 0 8px 25px rgba(220, 53, 69, 0.2); }
+        }
+        @keyframes pulse-green {
+          0% { transform: scale(1); box-shadow: 0 8px 25px rgba(40, 167, 69, 0.2); }
+          50% { transform: scale(1.06); box-shadow: 0 12px 30px rgba(32, 201, 151, 0.45); }
+          100% { transform: scale(1); box-shadow: 0 8px 25px rgba(40, 167, 69, 0.2); }
+        }
+        @keyframes flash-orange {
+          0% { filter: brightness(1); }
+          50% { filter: brightness(0.75); }
+          100% { filter: brightness(1); }
+        }
       `}</style>
     </div>
   )
