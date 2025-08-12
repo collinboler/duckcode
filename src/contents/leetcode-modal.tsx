@@ -699,8 +699,9 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
   const startRecording = async () => {
     if (isRecording) return
 
+    let stream: MediaStream | null = null
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       mediaRecorderRef.current = mediaRecorder
       audioChunksRef.current = []
@@ -715,6 +716,14 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
 
+        // Ensure tracks are fully stopped after stopping
+        try {
+          if (mediaRecorderRef.current?.stream) {
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+          }
+        } catch {}
+        mediaRecorderRef.current = null
+
         // Set processing state immediately to avoid purple gap
         setConnectionStatus('connecting')
         setIsRecording(false)
@@ -727,6 +736,11 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       setTranscript(prev => prev + '\n\nRecording... Speak now!')
     } catch (error) {
       console.error('Error starting recording:', error)
+      // Best-effort: stop any acquired tracks if we failed mid-way
+      try {
+        stream?.getTracks().forEach(track => track.stop())
+      } catch {}
+      mediaRecorderRef.current = null
       setIsRecording(false)
       setTranscript(prev => prev + '\n\nMicrophone access denied. Please allow microphone access.')
     }
@@ -734,11 +748,19 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
   // Stop recording
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
-      setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
+    const recorder = mediaRecorderRef.current
+    if (recorder) {
+      try {
+        if (recorder.state !== 'inactive') {
+          recorder.stop()
+          setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
+        }
+      } catch {}
+      try {
+        recorder.stream.getTracks().forEach(track => track.stop())
+      } catch {}
     }
+    mediaRecorderRef.current = null
     setIsRecording(false)
   }
 
@@ -799,13 +821,13 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
         e.preventDefault()
         e.stopPropagation()
 
-        // Open modal if not visible
-        if (!isVisible) {
-          setIsVisible(true)
-          setIsMinimized(false)
+        // Auto-start interview if it hasn't started yet
+        if (!interviewMode) {
+          // Initialize interview (async). Recording will start once connected
+          startInterview()
         }
 
-        // Start recording if not already recording
+        // If already connected, start recording immediately
         if (!isRecording && isConnected) {
           startRecording()
         }
@@ -842,7 +864,15 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('keyup', handleKeyUp)
     }
-  }, [keysPressed, isRecording, isVisible, isConnected, recordingShortcut])
+  }, [keysPressed, isRecording, isVisible, isMinimized, isConnected, interviewMode, recordingShortcut])
+
+  // If the shortcut is being held down while we finish connecting,
+  // begin recording as soon as the connection is ready.
+  useEffect(() => {
+    if (isConnected && !isRecording && isShortcutPressed(keysPressed)) {
+      startRecording()
+    }
+  }, [isConnected, isRecording, keysPressed, recordingShortcut])
 
   // Listen for shortcut changes from settings
   useEffect(() => {
@@ -1125,6 +1155,23 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     stopRecording()
     setTranscript('Interview ended. Great job practicing!')
   }
+
+  // Cleanup on unmount: ensure microphone is released
+  useEffect(() => {
+    return () => {
+      try {
+        if (mediaRecorderRef.current) {
+          if (mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop()
+          }
+          try {
+            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+          } catch {}
+          mediaRecorderRef.current = null
+        }
+      } catch {}
+    }
+  }, [])
 
   const toggleRecording = () => {
     if (mediaRecorderRef.current?.state === 'recording') {
