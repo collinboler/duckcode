@@ -53,9 +53,9 @@ if (!PUBLISHABLE_KEY) {
 // Function to open sidepanel settings
 const openSidepanelSettings = () => {
   // Send message to background script to open sidepanel and navigate to settings
-  chrome.runtime.sendMessage({ 
-    action: 'openSidepanel', 
-    route: '/settings' 
+  chrome.runtime.sendMessage({
+    action: 'openSidepanel',
+    route: '/settings'
   }).catch((error) => {
     console.error('Failed to send message to open sidepanel:', error)
   })
@@ -74,11 +74,30 @@ const DuckCodeModalContent = () => {
   const [currentProblem, setCurrentProblem] = useState<string>('')
   const [leetcodeContent, setLeetcodeContent] = useState<LeetCodeContent | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
+  const [isMinimized, setIsMinimized] = useState(false)
+  const [duckPosition, setDuckPosition] = useState<Position>({ x: 0, y: 0 })
+  const [isDuckDragging, setIsDuckDragging] = useState(false)
+  const [duckDragOffset, setDuckDragOffset] = useState<Position>({ x: 0, y: 0 })
+  const [isSnapping, setIsSnapping] = useState(false)
+  const [dragStartPosition, setDragStartPosition] = useState<Position>({ x: 0, y: 0 })
 
-  
+
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+
+  // Initialize duck position
+  useEffect(() => {
+    const initializeDuckPosition = () => {
+      const x = Math.max(20, window.innerWidth - 80)
+      const y = Math.max(20, window.innerHeight - 80)
+      console.log('Initializing duck position:', { x, y }, 'Window:', window.innerWidth, window.innerHeight)
+      setDuckPosition({ x, y })
+    }
+
+    // Small delay to ensure window dimensions are available
+    setTimeout(initializeDuckPosition, 100)
+  }, [])
 
   // Scrape LeetCode content from the page
   const scrapeLeetCodeContent = (): LeetCodeContent => {
@@ -99,7 +118,7 @@ const DuckCodeModalContent = () => {
       '[class*="title"]',
       '.question-title'
     ]
-    
+
     for (const selector of titleSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
@@ -116,7 +135,7 @@ const DuckCodeModalContent = () => {
       '.problem-statement',
       '.content__u3I1 .question-content'
     ]
-    
+
     for (const selector of descriptionSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
@@ -133,7 +152,7 @@ const DuckCodeModalContent = () => {
       '.ace_text-input',
       'textarea[autocomplete="off"]'
     ]
-    
+
     for (const selector of codeSelectors) {
       const element = document.querySelector(selector) as HTMLTextAreaElement
       if (element?.value) {
@@ -149,7 +168,7 @@ const DuckCodeModalContent = () => {
       '[class*="example"]',
       '.sample-test'
     ]
-    
+
     const testCaseElements = document.querySelectorAll(testCaseSelectors.join(', '))
     content.testCases = Array.from(testCaseElements)
       .map(el => el.textContent?.trim())
@@ -163,7 +182,7 @@ const DuckCodeModalContent = () => {
       '.editorial',
       '[class*="solution"]'
     ]
-    
+
     for (const selector of editorialSelectors) {
       const element = document.querySelector(selector)
       if (element?.textContent?.trim()) {
@@ -179,11 +198,11 @@ const DuckCodeModalContent = () => {
   const initializeRealtimeAPI = async () => {
     try {
       setConnectionStatus('connecting')
-      
+
       // Get API key from storage
       const result = await chrome.storage.sync.get(['openaiApiKey'])
       const apiKey = result.openaiApiKey
-      
+
       if (!apiKey) {
         setTranscript('❌ Please configure your OpenAI API key in Settings.')
         setConnectionStatus('disconnected')
@@ -217,7 +236,7 @@ Click "Record" to start speaking about your approach!`)
     try {
       const result = await chrome.storage.sync.get(['openaiApiKey'])
       const apiKey = result.openaiApiKey
-      
+
       if (!apiKey) {
         setTranscript(prev => prev + '\n\n❌ API key not found.')
         return
@@ -308,7 +327,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
         const audioArrayBuffer = await ttsResponse.arrayBuffer()
         const audioBlob = new Blob([audioArrayBuffer], { type: 'audio/mpeg' })
         const audioUrl = URL.createObjectURL(audioBlob)
-        
+
         const audio = new Audio(audioUrl)
         audio.play()
       }
@@ -337,7 +356,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        
+
         // Process the audio with OpenAI
         await processAudioWithOpenAI(audioBlob)
       }
@@ -369,7 +388,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
         '[class*="title"]',
         '.question-title'
       ]
-      
+
       let titleElement = null
       for (const selector of titleSelectors) {
         titleElement = document.querySelector(selector)
@@ -377,13 +396,13 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
           break
         }
       }
-      
+
       const isProblemPage = window.location.pathname.includes('/problems/')
-      
+
       if (titleElement || isProblemPage) {
-        const problemTitle = titleElement?.textContent?.trim() || 
-                           document.title.replace(' - LeetCode', '') || 
-                           'LeetCode Problem'
+        const problemTitle = titleElement?.textContent?.trim() ||
+          document.title.replace(' - LeetCode', '') ||
+          'LeetCode Problem'
         setCurrentProblem(problemTitle)
         setIsVisible(true)
       }
@@ -403,7 +422,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
   // Handle dragging
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!modalRef.current) return
-    
+
     const rect = modalRef.current.getBoundingClientRect()
     setIsDragging(true)
     setDragOffset({
@@ -414,7 +433,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging) return
-    
+
     setPosition({
       x: e.clientX - dragOffset.x,
       y: e.clientY - dragOffset.y
@@ -429,13 +448,117 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
-      
+
       return () => {
         document.removeEventListener('mousemove', handleMouseMove)
         document.removeEventListener('mouseup', handleMouseUp)
       }
     }
   }, [isDragging, dragOffset])
+
+  // Duck drag handlers
+  const handleDuckMouseDown = (e: React.MouseEvent) => {
+    console.log('Duck mouse down triggered')
+    e.preventDefault()
+    e.stopPropagation()
+
+    const duckElement = e.currentTarget as HTMLElement
+    const rect = duckElement.getBoundingClientRect()
+
+    setDragStartPosition({ x: e.clientX, y: e.clientY })
+    setIsDuckDragging(true)
+    setDuckDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    })
+    console.log('Duck dragging started')
+  }
+
+  const handleDuckMouseMove = (e: MouseEvent) => {
+    if (!isDuckDragging) return
+
+    const newX = e.clientX - duckDragOffset.x
+    const newY = e.clientY - duckDragOffset.y
+
+    // Keep within viewport bounds
+    const maxX = window.innerWidth - 60
+    const maxY = window.innerHeight - 60
+
+    const finalPosition = {
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY))
+    }
+
+    console.log('Duck moving to:', finalPosition)
+    setDuckPosition(finalPosition)
+  }
+
+  const handleDuckMouseUp = () => {
+    if (!isDuckDragging) return
+
+    setIsDuckDragging(false)
+
+    // Snap to edges with animation
+    const snapThreshold = 100
+    const centerX = window.innerWidth / 2
+
+    let newX = duckPosition.x
+    let newY = duckPosition.y
+    let shouldSnap = false
+
+    // Snap to left or right edge
+    if (duckPosition.x < centerX) {
+      if (duckPosition.x < snapThreshold) {
+        newX = 20 // Snap to left
+        shouldSnap = true
+      }
+    } else {
+      if (duckPosition.x > window.innerWidth - 60 - snapThreshold) {
+        newX = window.innerWidth - 80 // Snap to right
+        shouldSnap = true
+      }
+    }
+
+    // Snap to top or bottom edge
+    if (duckPosition.y < snapThreshold) {
+      newY = 20 // Snap to top
+      shouldSnap = true
+    } else if (duckPosition.y > window.innerHeight - 60 - snapThreshold) {
+      newY = window.innerHeight - 80 // Snap to bottom
+      shouldSnap = true
+    }
+
+    if (shouldSnap) {
+      setIsSnapping(true)
+      setTimeout(() => setIsSnapping(false), 300)
+    }
+
+    setDuckPosition({ x: newX, y: newY })
+  }
+
+  const handleDuckClick = (e: React.MouseEvent) => {
+    // Only open if it wasn't a drag (check if mouse moved less than 5px)
+    const dragDistance = Math.sqrt(
+      Math.pow(e.clientX - dragStartPosition.x, 2) +
+      Math.pow(e.clientY - dragStartPosition.y, 2)
+    )
+
+    if (dragDistance < 5) {
+      setIsMinimized(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isDuckDragging) {
+      document.addEventListener('mousemove', handleDuckMouseMove)
+      document.addEventListener('mouseup', handleDuckMouseUp)
+
+      return () => {
+        document.removeEventListener('mousemove', handleDuckMouseMove)
+        document.removeEventListener('mouseup', handleDuckMouseUp)
+      }
+    }
+  }, [isDuckDragging, duckDragOffset, duckPosition])
 
   const startInterview = async () => {
     setInterviewMode(true)
@@ -446,7 +569,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
     setInterviewMode(false)
     setIsConnected(false)
     setConnectionStatus('disconnected')
-    
+
     stopRecording()
     setTranscript('✅ Interview ended. Great job practicing!')
   }
@@ -460,6 +583,40 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
   }
 
   if (!isVisible) return null
+
+  // Show minimized duck emoji
+  if (isMinimized) {
+    console.log('Duck position:', duckPosition, 'Window size:', window.innerWidth, window.innerHeight)
+    return (
+      <div
+        className="duck-minimized"
+        style={{
+          position: 'fixed',
+          left: `${duckPosition.x}px`,
+          top: `${duckPosition.y}px`,
+          width: '60px',
+          height: '60px',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '28px',
+          cursor: isDuckDragging ? 'grabbing' : 'grab',
+          boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15), 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 4px rgba(102, 126, 234, 0.3)',
+          zIndex: 9999,
+          transition: isDuckDragging ? 'none' : 'all 0.3s ease',
+          userSelect: 'none',
+          transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)'
+        }}
+        onMouseDown={handleDuckMouseDown}
+        onClick={handleDuckClick}
+        title="Open DuckCode"
+      >
+        🦆
+      </div>
+    )
+  }
 
   return (
     <div
@@ -484,16 +641,19 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
           </div>
         </div>
         <div className="header-actions">
-          <button 
+          <button
             className="settings-btn"
             onClick={openSidepanelSettings}
             title="Settings"
           >
-            ⚙️
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
-          <button 
+          <button
             className="close-btn"
-            onClick={() => setIsVisible(false)}
+            onClick={() => setIsMinimized(true)}
           >
             ×
           </button>
@@ -514,10 +674,10 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
               </SignInButton>
             </div>
           </SignedOut>
-          
+
           <SignedIn>
             <div className="user-info">
-              <UserButton 
+              <UserButton
                 appearance={{
                   elements: {
                     avatarBox: "w-8 h-8"
@@ -544,7 +704,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
             </button>
           ) : (
             <div className="interview-controls">
-              <button 
+              <button
                 className={`record-btn ${mediaRecorderRef.current?.state === 'recording' ? 'recording' : ''}`}
                 onClick={toggleRecording}
                 disabled={!isConnected}
@@ -554,7 +714,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
                 </span>
                 {mediaRecorderRef.current?.state === 'recording' ? 'Stop' : 'Record'}
               </button>
-              
+
               <button className="stop-btn" onClick={stopInterview}>
                 <span className="btn-icon">❌</span>
                 End
@@ -817,6 +977,55 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
           font-size: 14px;
         }
 
+        /* Minimized Duck Styles */
+        .duck-minimized {
+          position: fixed !important;
+          width: 60px !important;
+          height: 60px !important;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+          border-radius: 50% !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          font-size: 28px !important;
+          cursor: grab !important;
+          box-shadow: 
+            0 8px 25px rgba(0, 0, 0, 0.15),
+            0 0 0 3px rgba(255, 255, 255, 0.9),
+            0 0 0 4px rgba(102, 126, 234, 0.3) !important;
+          z-index: 9999 !important;
+          transition: all 0.3s ease !important;
+          user-select: none !important;
+          backdrop-filter: blur(10px);
+          border: none !important;
+          outline: none !important;
+        }
+
+        .duck-minimized:hover:not(.dragging) {
+          transform: translateY(-3px) scale(1.05);
+          box-shadow: 
+            0 12px 35px rgba(0, 0, 0, 0.2),
+            0 0 0 3px rgba(255, 255, 255, 1),
+            0 0 0 5px rgba(102, 126, 234, 0.4);
+        }
+
+        .duck-minimized:active {
+          transform: translateY(-1px) scale(1.02);
+        }
+
+        .duck-minimized.dragging {
+          cursor: grabbing;
+          transform: scale(1.1);
+          box-shadow: 
+            0 15px 40px rgba(0, 0, 0, 0.25),
+            0 0 0 3px rgba(255, 255, 255, 1),
+            0 0 0 6px rgba(102, 126, 234, 0.5);
+          transition: none;
+        }
+
+        .duck-minimized.snapping {
+          transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
 
       `}</style>
     </div>
