@@ -75,6 +75,7 @@ const DuckCodeModalContent = () => {
   const [leetcodeContent, setLeetcodeContent] = useState<LeetCodeContent | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [isMinimized, setIsMinimized] = useState(false)
+  const [isOpening, setIsOpening] = useState(false)
   const [duckPosition, setDuckPosition] = useState<Position>({ x: 0, y: 0 })
   const [isDuckDragging, setIsDuckDragging] = useState(false)
   const [duckDragOffset, setDuckDragOffset] = useState<Position>({ x: 0, y: 0 })
@@ -548,7 +549,44 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
     )
 
     if (dragDistance < 5) {
+      // Calculate optimal modal position to ensure it's fully on screen
+      const modalWidth = 350
+      const modalHeight = 400 // Approximate modal height
+      const padding = 20 // Minimum distance from screen edges
+      
+      let modalX = duckPosition.x
+      let modalY = duckPosition.y
+      
+      // Adjust X position if modal would go off right edge
+      if (modalX + modalWidth > window.innerWidth - padding) {
+        modalX = window.innerWidth - modalWidth - padding
+      }
+      
+      // Adjust X position if modal would go off left edge
+      if (modalX < padding) {
+        modalX = padding
+      }
+      
+      // Adjust Y position if modal would go off bottom edge
+      if (modalY + modalHeight > window.innerHeight - padding) {
+        modalY = window.innerHeight - modalHeight - padding
+      }
+      
+      // Adjust Y position if modal would go off top edge
+      if (modalY < padding) {
+        modalY = padding
+      }
+      
+      // Set modal position with adjustments
+      setPosition({
+        x: modalX,
+        y: modalY
+      })
+      setIsOpening(true)
       setIsMinimized(false)
+
+      // Remove opening animation after it completes
+      setTimeout(() => setIsOpening(false), 300)
     }
   }
 
@@ -625,7 +663,7 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
   return (
     <div
       ref={modalRef}
-      className="duckcode-modal"
+      className={`duckcode-modal ${isOpening ? 'opening' : ''}`}
       style={{
         position: 'fixed',
         left: `${position.x}px`,
@@ -657,7 +695,14 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
           </button>
           <button
             className="close-btn"
-            onClick={() => setIsMinimized(true)}
+            onClick={() => {
+              // Update duck position to current modal position before minimizing
+              setDuckPosition({
+                x: position.x,
+                y: position.y
+              })
+              setIsMinimized(true)
+            }}
           >
             ×
           </button>
@@ -748,6 +793,30 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
           user-select: none;
           backdrop-filter: blur(10px);
           background: rgba(255, 255, 255, 0.95);
+        }
+
+        .duckcode-modal.opening {
+          animation: modalOpen 0.3s ease;
+        }
+
+        @keyframes modalOpen {
+          0% {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 
+              0 8px 25px rgba(0, 0, 0, 0.15),
+              0 0 0 3px rgba(255, 255, 255, 0.9),
+              0 0 0 4px rgba(102, 126, 234, 0.3);
+          }
+          100% {
+            width: 350px;
+            height: auto;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+          }
         }
 
         .modal-header {
