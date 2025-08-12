@@ -91,6 +91,7 @@ const DuckCodeModalContent = () => {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
   const [keysPressed, setKeysPressed] = useState<Set<string>>(new Set())
+  const keysPressedRef = useRef<Set<string>>(new Set())
   const [isSpeaking, setIsSpeaking] = useState(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -801,23 +802,24 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase()
-      const newKeysPressed = new Set(keysPressed)
+      const current = new Set(keysPressedRef.current)
 
       // Add modifier keys
-      if (e.ctrlKey) newKeysPressed.add('control')
-      if (e.shiftKey) newKeysPressed.add('shift')
-      if (e.altKey) newKeysPressed.add('alt')
-      if (e.metaKey) newKeysPressed.add('meta')
+      if (e.ctrlKey) current.add('control')
+      if (e.shiftKey) current.add('shift')
+      if (e.altKey) current.add('alt')
+      if (e.metaKey) current.add('meta')
 
       // Add the main key
       if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-        newKeysPressed.add(key)
+        current.add(key)
       }
 
-      setKeysPressed(newKeysPressed)
+      keysPressedRef.current = current
+      setKeysPressed(new Set(current))
 
       // Check if shortcut is pressed
-      if (isShortcutPressed(newKeysPressed)) {
+      if (isShortcutPressed(current)) {
         e.preventDefault()
         e.stopPropagation()
 
@@ -835,44 +837,58 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      const newKeysPressed = new Set(keysPressed)
+      const current = new Set(keysPressedRef.current)
 
-      // Remove modifier keys
-      if (!e.ctrlKey) newKeysPressed.delete('control')
-      if (!e.shiftKey) newKeysPressed.delete('shift')
-      if (!e.altKey) newKeysPressed.delete('alt')
-      if (!e.metaKey) newKeysPressed.delete('meta')
+      // Remove modifier keys if no longer pressed
+      if (!e.ctrlKey) current.delete('control')
+      if (!e.shiftKey) current.delete('shift')
+      if (!e.altKey) current.delete('alt')
+      if (!e.metaKey) current.delete('meta')
 
       // Remove the main key
       const key = e.key.toLowerCase()
       if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-        newKeysPressed.delete(key)
+        current.delete(key)
       }
 
-      setKeysPressed(newKeysPressed)
+      keysPressedRef.current = current
+      setKeysPressed(new Set(current))
 
       // Stop recording if shortcut is released and we were recording
-      if (isRecording && !isShortcutPressed(newKeysPressed)) {
+      if (isRecording && !isShortcutPressed(current)) {
+        stopRecording()
+      }
+    }
+
+    const handleBlurOrHide = () => {
+      // On tab blur or visibility change, clear keys and stop recording
+      keysPressedRef.current = new Set()
+      setKeysPressed(new Set())
+      if (isRecording) {
         stopRecording()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', handleBlurOrHide)
+    document.addEventListener('visibilitychange', handleBlurOrHide)
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', handleBlurOrHide)
+      document.removeEventListener('visibilitychange', handleBlurOrHide)
     }
-  }, [keysPressed, isRecording, isVisible, isMinimized, isConnected, interviewMode, recordingShortcut])
+  }, [isRecording, isConnected, interviewMode, recordingShortcut])
 
   // If the shortcut is being held down while we finish connecting,
   // begin recording as soon as the connection is ready.
   useEffect(() => {
-    if (isConnected && !isRecording && isShortcutPressed(keysPressed)) {
+    if (isConnected && !isRecording && isShortcutPressed(keysPressedRef.current)) {
       startRecording()
     }
-  }, [isConnected, isRecording, keysPressed, recordingShortcut])
+  }, [isConnected, isRecording, recordingShortcut])
 
   // Listen for shortcut changes from settings
   useEffect(() => {
