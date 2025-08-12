@@ -661,7 +661,21 @@ const DuckCodeModalContent = () => {
         try {
           if (typeof e.data === 'string') {
             const evt = JSON.parse(e.data)
-            if (evt?.type === 'response.done') {
+            // Mark speaking as soon as audio deltas stream in
+            if (
+              evt?.type === 'response.audio.delta' ||
+              evt?.type === 'response.output_audio.delta'
+            ) {
+              setIsSpeaking(true)
+              setConnectionStatus('connected')
+            }
+            // Stop speaking on completion or audio done
+            if (
+              evt?.type === 'response.done' ||
+              evt?.type === 'response.audio.done' ||
+              evt?.type === 'response.output_audio.done' ||
+              evt?.type === 'response.error'
+            ) {
               setIsSpeaking(false)
               setConnectionStatus('connected')
             }
@@ -675,7 +689,7 @@ const DuckCodeModalContent = () => {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
-      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview`, {
+      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview`, {
         method: 'POST',
         body: offer.sdp,
         headers: {
@@ -1413,11 +1427,11 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     if (isRecording) {
       return 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)' // Red when recording
     }
-    if (connectionStatus === 'connecting') {
-      return 'linear-gradient(135deg, #fd7e14 0%, #e55a00 100%)' // Orange when processing/thinking
-    }
     if (isSpeaking) {
       return 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' // Green when talking/outputting TTS
+    }
+    if (connectionStatus === 'connecting') {
+      return 'linear-gradient(135deg, #fd7e14 0%, #e55a00 100%)' // Orange when processing/thinking
     }
     return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' // Default purple
   }
