@@ -36,6 +36,7 @@ interface Position {
 interface LeetCodeContent {
   problemTitle: string
   problemDescription: string
+  topics: string
   editorial: string
   solutions: string
   codeSection: string
@@ -122,6 +123,7 @@ const DuckCodeModalContent = () => {
     const content: LeetCodeContent = {
       problemTitle: '',
       problemDescription: '',
+      topics: '',
       editorial: '',
       solutions: '',
       codeSection: '',
@@ -166,21 +168,137 @@ const DuckCodeModalContent = () => {
       }
     }
 
-    // Code section (current user code)
-    const codeSelectors = [
-      '.monaco-editor textarea',
-      '.CodeMirror-code',
-      '[data-track-load="qd_code_editor"]',
-      '.ace_text-input',
-      'textarea[autocomplete="off"]'
+    // Topics/Tags (if available)
+    const topicSelectors = [
+      '[data-cy="topic-tag"]',
+      '.topic-tag',
+      '[class*="topic"]',
+      '[class*="tag"]',
+      '.tag',
+      '[data-track-load="tag"]',
+      '.difficulty + div a', // Topics often appear after difficulty
+      '[class*="badge"]'
     ]
-
-    for (const selector of codeSelectors) {
-      const element = document.querySelector(selector) as HTMLTextAreaElement
-      if (element?.value) {
-        content.codeSection = element.value
-        break
+    
+    let allTopics: string[] = []
+    
+    topicSelectors.forEach(selector => {
+      const elements = document.querySelectorAll(selector)
+      elements.forEach(el => {
+        const text = el.textContent?.trim()
+        if (text && text.length > 0 && text.length < 50 && 
+            !text.toLowerCase().includes('easy') &&
+            !text.toLowerCase().includes('medium') &&
+            !text.toLowerCase().includes('hard') &&
+            !text.toLowerCase().includes('difficulty')) {
+          allTopics.push(text)
+        }
+      })
+    })
+    
+    // Also look for topics in specific patterns
+    const topicPatterns = document.querySelectorAll('a[href*="/tag/"], a[href*="/topic/"]')
+    topicPatterns.forEach(el => {
+      const text = el.textContent?.trim()
+      if (text && text.length > 0 && text.length < 50) {
+        allTopics.push(text)
       }
+    })
+    
+    // Clean up and deduplicate topics
+    const uniqueTopics = [...new Set(allTopics)]
+      .map(topic => cleanHtmlEntities(topic))
+      .filter(topic => topic.length > 0 && topic.length < 50)
+      .slice(0, 10) // Limit to 10 topics
+    
+    if (uniqueTopics.length > 0) {
+      content.topics = uniqueTopics.join(', ')
+    }
+
+    // Code section (current user code) - enhanced Monaco editor detection
+    let codeContent = ''
+    
+    // Strategy 1: Try Monaco editor model content
+    try {
+      // @ts-ignore - Monaco editor global
+      if (window.monaco && window.monaco.editor) {
+        const editors = window.monaco.editor.getEditors()
+        if (editors && editors.length > 0) {
+          const editor = editors[0]
+          codeContent = editor.getValue()
+        }
+      }
+    } catch (e) {
+      console.log('Monaco editor not accessible via global')
+    }
+    
+    // Strategy 2: Try to get code from Monaco editor DOM
+    if (!codeContent) {
+      const monacoLines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
+      if (monacoLines.length > 0) {
+        const lines = Array.from(monacoLines).map(line => {
+          // Get text content, preserving spaces
+          return line.textContent || ''
+        })
+        codeContent = lines.join('\n')
+      }
+    }
+    
+    // Strategy 3: Try textarea and other input methods
+    if (!codeContent) {
+      const codeSelectors = [
+        '.monaco-editor textarea',
+        '.CodeMirror-code',
+        '[data-track-load="qd_code_editor"]',
+        '.ace_text-input',
+        'textarea[autocomplete="off"]',
+        'textarea[data-mode-id]',
+        '.inputarea'
+      ]
+      
+      for (const selector of codeSelectors) {
+        const element = document.querySelector(selector) as HTMLTextAreaElement
+        if (element?.value && element.value.trim().length > 0) {
+          codeContent = element.value
+          break
+        }
+      }
+    }
+    
+    // Strategy 4: Try to get from CodeMirror if present
+    if (!codeContent) {
+      try {
+        // @ts-ignore - CodeMirror global
+        if (window.CodeMirror) {
+          const cmElements = document.querySelectorAll('.CodeMirror')
+          for (const cmEl of cmElements) {
+            // @ts-ignore
+            if (cmEl.CodeMirror) {
+              // @ts-ignore
+              codeContent = cmEl.CodeMirror.getValue()
+              if (codeContent) break
+            }
+          }
+        }
+      } catch (e) {
+        console.log('CodeMirror not accessible')
+      }
+    }
+    
+    // Strategy 5: Look for code in pre/code blocks as fallback
+    if (!codeContent) {
+      const codeBlocks = document.querySelectorAll('pre code, .highlight code, [class*="code-block"]')
+      for (const block of codeBlocks) {
+        const text = block.textContent?.trim()
+        if (text && text.includes('class Solution') && text.length > 50) {
+          codeContent = text
+          break
+        }
+      }
+    }
+    
+    if (codeContent && codeContent.trim().length > 0) {
+      content.codeSection = cleanHtmlEntities(codeContent.trim())
     }
 
     // Test cases
@@ -532,11 +650,13 @@ Click "Record" to start speaking about your approach!`)
         setTranscript(prev => prev + `\n📝 Current Code: No code written yet`)
       }
       
+      setTranscript(prev => prev + `\n📋 Problem: ${currentContent.problemTitle || 'None'}`)
+      setTranscript(prev => prev + `\n📖 Description: ${currentContent.problemDescription ? currentContent.problemDescription.substring(0, 100) + '...' : 'None'}`)
+      setTranscript(prev => prev + `\n🏷️ Topics: ${currentContent.topics || 'None'}`)
       setTranscript(prev => prev + `\n🔍 Last Input: ${currentContent.lastExecutedInput || 'None'}`)
       setTranscript(prev => prev + `\n❌ Runtime Error: ${currentContent.runtimeError || 'None'}`)
       setTranscript(prev => prev + `\n⚠️ Exception: ${currentContent.runtimeException || 'None'}`)
       setTranscript(prev => prev + `\n💡 Hints: ${currentContent.hints || 'None'}`)
-      setTranscript(prev => prev + `\n📋 Problem: ${currentContent.problemTitle || 'None'}`)
       setTranscript(prev => prev + `\n🔧 END DEBUG\n`)
 
       // Now send to GPT-4 for interview response
@@ -556,6 +676,7 @@ Click "Record" to start speaking about your approach!`)
 Current LeetCode Problem Context:
 - Problem: ${leetcodeContent?.problemTitle}
 - Description: ${leetcodeContent?.problemDescription}
+- Topics/Tags: ${currentContent.topics || 'None specified'}
 - Test Cases: ${leetcodeContent?.testCases}
 - Hints: ${leetcodeContent?.hints || 'No hints available'}
 
@@ -567,7 +688,7 @@ Latest Execution Context:
 - Runtime Error: ${currentContent.runtimeError || 'None'}
 - Runtime Exception: ${currentContent.runtimeException || 'None'}
 
-Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. You can see their current code and any execution results/errors. If there are runtime errors or exceptions, help them debug and understand what went wrong. If hints are available, you can reference them subtly to guide the candidate without being too direct. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
+Act as a friendly but professional interviewer. Ask follow-up questions about their approach, help them think through edge cases, and provide constructive feedback. You can see their current code and any execution results/errors. The topics/tags give you insight into what algorithms or data structures are relevant. If there are runtime errors or exceptions, help them debug and understand what went wrong. If hints are available, you can reference them subtly to guide the candidate without being too direct. Keep responses conversational and encouraging. Respond in 1-2 sentences.`
             },
             {
               role: 'user',
