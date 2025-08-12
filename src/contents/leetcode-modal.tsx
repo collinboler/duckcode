@@ -498,41 +498,45 @@ Act as a friendly but professional interviewer. Ask follow-up questions about th
 
     setIsDuckDragging(false)
 
-    // Snap to edges with animation
-    const snapThreshold = 100
-    const centerX = window.innerWidth / 2
+    // Always snap to the nearest edge
+    const duckCenterX = duckPosition.x + 30 // Duck width/2
+    const duckCenterY = duckPosition.y + 30 // Duck height/2
+
+    const windowWidth = window.innerWidth
+    const windowHeight = window.innerHeight
+
+    // Calculate distances to each edge
+    const distanceToLeft = duckCenterX
+    const distanceToRight = windowWidth - duckCenterX
+    const distanceToTop = duckCenterY
+    const distanceToBottom = windowHeight - duckCenterY
+
+    // Find the minimum distance
+    const minDistance = Math.min(distanceToLeft, distanceToRight, distanceToTop, distanceToBottom)
 
     let newX = duckPosition.x
     let newY = duckPosition.y
-    let shouldSnap = false
 
-    // Snap to left or right edge
-    if (duckPosition.x < centerX) {
-      if (duckPosition.x < snapThreshold) {
-        newX = 20 // Snap to left
-        shouldSnap = true
-      }
-    } else {
-      if (duckPosition.x > window.innerWidth - 60 - snapThreshold) {
-        newX = window.innerWidth - 80 // Snap to right
-        shouldSnap = true
-      }
+    // Snap to the nearest edge
+    if (minDistance === distanceToLeft) {
+      // Snap to left edge
+      newX = 20
+    } else if (minDistance === distanceToRight) {
+      // Snap to right edge
+      newX = windowWidth - 80
+    } else if (minDistance === distanceToTop) {
+      // Snap to top edge
+      newY = 20
+    } else if (minDistance === distanceToBottom) {
+      // Snap to bottom edge
+      newY = windowHeight - 80
     }
 
-    // Snap to top or bottom edge
-    if (duckPosition.y < snapThreshold) {
-      newY = 20 // Snap to top
-      shouldSnap = true
-    } else if (duckPosition.y > window.innerHeight - 60 - snapThreshold) {
-      newY = window.innerHeight - 80 // Snap to bottom
-      shouldSnap = true
-    }
+    // Always animate the snap
+    setIsSnapping(true)
+    setTimeout(() => setIsSnapping(false), 300)
 
-    if (shouldSnap) {
-      setIsSnapping(true)
-      setTimeout(() => setIsSnapping(false), 300)
-    }
-
+    console.log('Snapping duck from', duckPosition, 'to', { x: newX, y: newY })
     setDuckPosition({ x: newX, y: newY })
   }
 
