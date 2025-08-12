@@ -608,9 +608,6 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     }
 
     try {
-      // Set processing state
-      setConnectionStatus('connecting')
-
       // Capture current execution context
       const currentContent = scrapeLeetCodeContent()
       const context: InterviewContext = {
@@ -637,14 +634,13 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
       setTranscript(prev => prev + `\n\nInterviewer: ${result.response}`)
 
-      // Reset to connected before starting speech
-      setConnectionStatus('connected')
-
-      // Convert to speech
+      // Convert to speech (keep orange state during TTS generation)
       const audioBlob2 = await aiService.synthesizeSpeech(result.response)
       const audioUrl = URL.createObjectURL(audioBlob2)
       const audio = new Audio(audioUrl)
 
+      // Only switch to green when audio actually starts playing
+      setConnectionStatus('connected')
       setIsSpeaking(true)
       audio.onended = () => setIsSpeaking(false)
       audio.onerror = () => setIsSpeaking(false)
@@ -678,6 +674,9 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+
+        // Set processing state immediately to avoid purple gap
+        setConnectionStatus('connecting')
         setIsRecording(false)
 
         // Process the audio with OpenAI
