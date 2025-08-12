@@ -230,7 +230,7 @@ const DuckCodeModalContent = () => {
     // Code section (current user code) - enhanced Monaco editor detection
     let codeContent = ''
 
-    // Strategy 1: Try Monaco editor model content
+    // Strategy 1: Try Monaco editor model content - multiple approaches
     try {
       // @ts-ignore - Monaco editor global
       if (window.monaco && window.monaco.editor) {
@@ -240,19 +240,44 @@ const DuckCodeModalContent = () => {
           codeContent = editor.getValue()
         }
       }
+
+      // Alternative: Try to find Monaco editor instance on DOM elements
+      if (!codeContent) {
+        const monacoContainers = document.querySelectorAll('.monaco-editor')
+        for (const container of monacoContainers) {
+          // @ts-ignore - Check if container has editor instance
+          if (container._editor) {
+            // @ts-ignore
+            codeContent = container._editor.getValue()
+            break
+          }
+        }
+      }
     } catch (e) {
       console.log('Monaco editor not accessible via global')
     }
 
-    // Strategy 2: Try to get code from Monaco editor DOM
+    // Strategy 2: Try to get code from Monaco editor DOM - improved line detection
     if (!codeContent) {
-      const monacoLines = document.querySelectorAll('.monaco-editor .view-lines .view-line')
-      if (monacoLines.length > 0) {
-        const lines = Array.from(monacoLines).map(line => {
-          // Get text content, preserving spaces
-          return line.textContent || ''
-        })
-        codeContent = lines.join('\n')
+      // Try different Monaco editor line selectors
+      const lineSelectors = [
+        '.monaco-editor .view-lines .view-line',
+        '.monaco-editor .view-line',
+        '.view-lines .view-line',
+        '.monaco-editor .lines-content .view-line'
+      ]
+
+      for (const selector of lineSelectors) {
+        const monacoLines = document.querySelectorAll(selector)
+        if (monacoLines.length > 0) {
+          const lines = Array.from(monacoLines).map(line => {
+            // Get text content, preserving spaces and handling empty lines
+            const text = line.textContent || ''
+            return text === '\u00a0' ? '' : text // Replace non-breaking space with empty string
+          })
+          codeContent = lines.join('\n')
+          break
+        }
       }
     }
 
@@ -310,7 +335,22 @@ const DuckCodeModalContent = () => {
     }
 
     if (codeContent && codeContent.trim().length > 0) {
-      content.codeSection = cleanHtmlEntities(codeContent.trim())
+      // Clean and format the code content
+      let cleanedCode = cleanHtmlEntities(codeContent.trim())
+
+      // Fix common formatting issues
+      cleanedCode = cleanedCode
+        .replace(/\s*{\s*/g, ' {\n    ') // Add newlines after opening braces
+        .replace(/;\s*(?=[a-zA-Z])/g, ';\n    ') // Add newlines after semicolons before code
+        .replace(/}\s*(?=[a-zA-Z])/g, '}\n') // Add newlines after closing braces
+        .replace(/\n\s*\n\s*\n/g, '\n\n') // Remove excessive blank lines
+        .replace(/^\s+/gm, (match) => {
+          // Preserve indentation but normalize it
+          const spaces = match.length
+          return '    '.repeat(Math.floor(spaces / 4)) + ' '.repeat(spaces % 4)
+        })
+
+      content.codeSection = cleanedCode
     }
 
     // Test cases
@@ -611,7 +651,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       // Capture current execution context
       const currentContent = scrapeLeetCodeContent()
       const context: InterviewContext = {
-        currentCode: currentContent.codeSection || 'No code written yet',
+        currentCode: addLineNumbers(currentContent.codeSection || 'No code written yet'),
         lastExecutedInput: currentContent.lastExecutedInput || '',
         runtimeError: currentContent.runtimeError || '',
         runtimeException: currentContent.runtimeException || ''
@@ -1106,6 +1146,21 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       return 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' // Green when talking/outputting TTS
     }
     return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' // Default purple
+  }
+
+  // Add line numbers to code for better AI context
+  const addLineNumbers = (code: string): string => {
+    if (!code || code.trim() === 'No code written yet') {
+      return code
+    }
+
+    const lines = code.split('\n')
+    const paddedLines = lines.map((line, index) => {
+      const lineNumber = (index + 1).toString().padStart(2, ' ')
+      return `${lineNumber}: ${line}`
+    })
+
+    return paddedLines.join('\n')
   }
 
   if (!isVisible) return null
