@@ -9,7 +9,14 @@ import {
   UserButton,
   useUser
 } from '@clerk/chrome-extension'
-import { AIInterviewService, type LeetCodeContent, type InterviewContext } from '../services/aiInterviewService'
+import { AIInterviewService, type InterviewContext } from '../services/aiInterviewService'
+import duckIconUrl from "data-base64:~assets/duck_128.png"
+
+declare global {
+  interface Window {
+    monaco?: any
+  }
+}
 
 export const config: PlasmoCSConfig = {
   matches: ["*://leetcode.com/*", "*://*.leetcode.com/*"]
@@ -1257,7 +1264,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
         onClick={handleDuckClick}
         title="Open DuckCode"
       >
-        🦆
+        <img src={duckIconUrl} alt="DuckCode" style={{ width: '36px', height: '36px', pointerEvents: 'none' }} />
       </div>
     )
   }
@@ -1277,7 +1284,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     >
       <div className="modal-header" onMouseDown={handleMouseDown}>
         <div className="header-content">
-          <div className="logo">🦆</div>
+          <div className="logo"><img src={duckIconUrl} alt="DuckCode" style={{ width: '24px', height: '24px' }} /></div>
           <div className="title">DuckCode</div>
           <div className={`status-indicator ${connectionStatus}`}>
             {connectionStatus === 'connected' && '🟢'}

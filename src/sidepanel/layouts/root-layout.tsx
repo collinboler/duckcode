@@ -2,7 +2,7 @@ import { Link, Outlet, useNavigate, useLocation } from 'react-router'
 import { ClerkProvider, SignedIn, SignedOut, UserButton } from '@clerk/chrome-extension'
 import { useEffect, useRef, useState } from 'react'
 
-import logoUrl from "data-base64:~assets/geolocationbot128.png"
+import logoUrl from "data-base64:~assets/duck_128.png"
 
 const PUBLISHABLE_KEY = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
 
