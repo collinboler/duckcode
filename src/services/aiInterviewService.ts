@@ -148,10 +148,12 @@ IMPORTANT OUTPUT FORMATTING:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-nano',
         messages,
-        max_tokens: 150,
-        temperature: 0.7
+        reasoning_effort: "low",    // optional: less reasoning for faster response
+        verbosity: "low"    
+        // max_tokens: 150,
+        // temperature: 0.7
       })
     })
 
