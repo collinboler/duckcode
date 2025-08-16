@@ -107,7 +107,7 @@ export const Home = () => {
               </div>
               <div className="problem-content">
                 <div>
-                  <h3>🦆 Modal Available!</h3>
+                  <h3>Modal Available!</h3>
                   <p style={{margin: '8px 0 0 0', fontSize: '13px', color: '#666'}}>
                     Look for the draggable DuckCode modal on your LeetCode page
                   </p>

@@ -150,7 +150,7 @@ export const Settings = () => {
                 <path d="M12 19l-7-7 7-7"/>
               </svg>
             </button>
-            <h1>🦆 DuckCode Settings</h1>
+            <h1>DuckCode Settings</h1>
           </div>
         </div>
         

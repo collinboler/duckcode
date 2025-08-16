@@ -51,17 +51,17 @@
           "action": {
         "default_title": "DuckCode - Open Mock Interview",
         "default_icon": {
-          "16": "~src/assets/geolocationbot16.png",
-          "48": "~src/assets/geolocationbot48.png",
-          "64": "~src/assets/geolocationbot64.png",
-          "128": "~src/assets/geolocationbot128.png"
+          "16": "~src/assets/duck_128.png",
+          "48": "~src/assets/duck_128.png",
+          "64": "~src/assets/duck_128.png",
+          "128": "~src/assets/duck_128.png"
         }
       },
       "icons": {
-        "16": "~src/assets/geolocationbot16.png",
-        "48": "~src/assets/geolocationbot48.png",
-        "64": "~src/assets/geolocationbot64.png",
-        "128": "~src/assets/geolocationbot128.png"
+        "16": "~src/assets/duck_128.png",
+        "48": "~src/assets/duck_128.png",
+        "64": "~src/assets/duck_128.png",
+        "128": "~src/assets/duck_128.png"
       }
   }
 }
