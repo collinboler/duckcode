@@ -23,9 +23,15 @@ class AIInterviewService {
   private apiKey: string
   private conversationHistory: ConversationMessage[] = []
   private staticContext: LeetCodeContent | null = null
+  private model: string = 'gpt-5'
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model?: string) {
     this.apiKey = apiKey
+    this.model = model || 'gpt-5'
+  }
+
+  setModel(model: string) {
+    this.model = model
   }
 
   setStaticContext(leetcodeContent: LeetCodeContent) {
@@ -40,7 +46,7 @@ class AIInterviewService {
     if (!this.staticContext) {
       return `You are a mock coding interviewer helping someone practice technical interviews. 
       Act as a friendly but professional interviewer. Keep responses conversational and encouraging. 
-      Respond in 1-2 sentences. Never use code blocks or special characters like brackets, parentheses, or symbols. Write everything as plain text as if you were speaking it aloud.`
+      Respond in a few words to a sentence unless absolutely neccessary. sentences. Never use code blocks or special characters like brackets, parentheses, or symbols. Write everything as plain text as if you were speaking it aloud. Refrain from asking any follow up questions, like it's a real interview.`
     }
 
     const { problemTitle, problemDescription, topics, hints, testCases } = this.staticContext
@@ -63,7 +69,8 @@ INTERVIEW GUIDELINES:
 - If there are runtime errors or exceptions, help them debug and understand what went wrong
 - If hints are available, you can reference them subtly to guide the candidate without being too direct
 - Keep responses conversational and encouraging
-- Respond in 1-2 sentences
+- Respond in 1-2 brief sentences maximum
+- Be extremely concise - aim for under 20 words when possible
 - Focus on the problem-solving process, not just the final answer
 
 IMPORTANT OUTPUT FORMATTING:
@@ -83,17 +90,17 @@ IMPORTANT OUTPUT FORMATTING:
     const extension = blobType.includes('wav')
       ? 'wav'
       : blobType.includes('mpeg') || blobType.includes('mp3')
-      ? 'mp3'
-      : blobType.includes('ogg')
-      ? 'ogg'
-      : blobType.includes('webm')
-      ? 'webm'
-      : 'wav'
+        ? 'mp3'
+        : blobType.includes('ogg')
+          ? 'ogg'
+          : blobType.includes('webm')
+            ? 'webm'
+            : 'wav'
 
     const file = new File([audioBlob], `audio.${extension}`, { type: blobType })
 
     formData.append('file', file)
-    formData.append('model', 'gpt-4o-mini-transcribe')
+    formData.append('model', 'whisper-1')
 
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -108,7 +115,7 @@ IMPORTANT OUTPUT FORMATTING:
       try {
         // Try to include server error details for debugging
         errorDetail = await response.text()
-      } catch {}
+      } catch { }
       throw new Error(`Transcription failed: ${response.status} ${response.statusText} ${errorDetail}`)
     }
 
@@ -121,7 +128,7 @@ IMPORTANT OUTPUT FORMATTING:
     const contextMessage = this.buildContextMessage(context)
     const systemPrompt = this.buildSystemPrompt()
     const fullUserMessage = `${contextMessage}\n\nUser said: "${userInput}"`
-    
+
     // Prepare messages for API - include conversation history properly
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -148,10 +155,10 @@ IMPORTANT OUTPUT FORMATTING:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-nano',
+        model: this.model,
         messages,
         reasoning_effort: "low",    // optional: less reasoning for faster response
-        verbosity: "low"    
+        verbosity: "low"
         // max_tokens: 150,
         // temperature: 0.7
       })
@@ -188,20 +195,128 @@ IMPORTANT OUTPUT FORMATTING:
     }
   }
 
+  async getStreamingInterviewResponse(
+    userInput: string,
+    context: InterviewContext,
+    onChunk: (chunk: string) => void
+  ): Promise<{ fullResponse: string, systemPrompt: string, userMessage: string }> {
+    // Build dynamic context message and system prompt
+    const contextMessage = this.buildContextMessage(context)
+    const systemPrompt = this.buildSystemPrompt()
+    const fullUserMessage = `${contextMessage}\n\nUser said: "${userInput}"`
+
+    // Prepare messages for API - include conversation history properly
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      // Include previous conversation history (excluding current message)
+      ...this.conversationHistory.slice(-8).map(msg => ({ // Keep last 8 messages for context
+        role: msg.role,
+        content: msg.content
+      })),
+      // Add current user message with context
+      { role: 'user', content: fullUserMessage }
+    ]
+
+    // Console log for debugging
+    console.log('=== AI STREAMING REQUEST ===')
+    console.log('System Prompt:', systemPrompt)
+    console.log('User Message:', fullUserMessage)
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        reasoning_effort: "low",
+        verbosity: "low",
+        stream: true
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Streaming Chat API failed: ${response.statusText}`)
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('No reader available for streaming response')
+    }
+
+    const decoder = new TextDecoder()
+    let fullResponse = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+        const lines = chunk.split('\n')
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+
+            try {
+              const parsed = JSON.parse(data)
+              const content = parsed.choices?.[0]?.delta?.content
+              if (content) {
+                fullResponse += content
+                onChunk(content)
+              }
+            } catch (e) {
+              // Skip invalid JSON lines
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+
+    // Console log the response
+    console.log('Full Streaming Response:', fullResponse)
+    console.log('=== END AI STREAMING REQUEST ===')
+
+    // Add both user message and AI response to conversation history
+    this.conversationHistory.push({
+      role: 'user',
+      content: userInput, // Store just the user input, not the full context
+      timestamp: new Date()
+    })
+
+    this.conversationHistory.push({
+      role: 'assistant',
+      content: fullResponse,
+      timestamp: new Date()
+    })
+
+    return {
+      fullResponse,
+      systemPrompt,
+      userMessage: fullUserMessage
+    }
+  }
+
   private buildContextMessage(context: InterviewContext): string {
     const parts = []
-    
+
     parts.push(`CURRENT CONTEXT:`)
     parts.push(`- Current Code: ${context.currentCode || 'No code written yet'}`)
-    
+
     if (context.lastExecutedInput) {
       parts.push(`- Last Input: ${context.lastExecutedInput}`)
     }
-    
+
     if (context.runtimeError) {
       parts.push(`- Runtime Error: ${context.runtimeError}`)
     }
-    
+
     if (context.runtimeException) {
       parts.push(`- Exception: ${context.runtimeException}`)
     }
@@ -217,7 +332,7 @@ IMPORTANT OUTPUT FORMATTING:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1',
+        model: 'gpt-4o-mini-tts',
         input: text,
         voice: 'alloy',
         response_format: 'mp3'

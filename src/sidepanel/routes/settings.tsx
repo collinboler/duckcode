@@ -14,10 +14,12 @@ export const Settings = () => {
   const [sessionCost, setSessionCost] = useState('$0.00')
   const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
   const [isCapturingShortcut, setIsCapturingShortcut] = useState(false)
+  const [textMode, setTextMode] = useState(false)
+  const [gptModel, setGptModel] = useState('gpt-4')
 
   // Load settings from storage
   useEffect(() => {
-    chrome.storage.sync.get(['darkMode', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost', 'recordingShortcut'], (result) => {
+    chrome.storage.sync.get(['darkMode', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost', 'recordingShortcut', 'textMode', 'gptModel'], (result) => {
       const isDarkMode = result.darkMode || false
       setDarkMode(isDarkMode)
       
@@ -30,6 +32,8 @@ export const Settings = () => {
       setAnalysisCost(result.analysisCost || '$0.00')
       setSessionCost(result.sessionCost || '$0.00')
       setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
+      setTextMode(result.textMode || false)
+      setGptModel(result.gptModel || 'gpt-5')
       
       // Ensure dark mode is applied to body when settings page loads
       if (isDarkMode) {
@@ -52,7 +56,16 @@ export const Settings = () => {
       } else {
         document.body.classList.remove('dark-mode')
       }
+    } else if (setting === 'textMode') {
+      setTextMode(value)
     }
+  }
+
+  const handleModelChange = (model: string) => {
+    setGptModel(model)
+    chrome.storage.sync.set({ gptModel: model }, () => {
+      console.log('GPT model saved:', model)
+    })
   }
 
   const handleSaveApiKey = async () => {
@@ -222,6 +235,26 @@ export const Settings = () => {
                 </div>
               </div>
             </div>
+            
+            <div className="setting-item model-selection">
+              <div className="model-content">
+                <label htmlFor="gpt-model-select">GPT Model</label>
+                <p className="model-description">
+                  Choose which GPT model to use for interviews
+                </p>
+                <select 
+                  id="gpt-model-select"
+                  value={gptModel}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  className="model-select"
+                >
+                  <option value="gpt-5">gpt-5</option>
+                  <option value="gpt-5-mini">gpt-5-mini</option>
+                  <option value="gpt-5-nano">gpt-5-nano</option>
+                  <option value="gpt-5-chat-latest">gpt-5-chat-latest</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           {/* Display Settings Section */}
@@ -235,6 +268,28 @@ export const Settings = () => {
                   id="dark-mode-switch"
                   checked={darkMode}
                   onChange={(e) => handleToggle('darkMode', e.target.checked)}
+                />
+                <span className="slider round"></span>
+              </label>
+            </div>
+          </div>
+
+          {/* Interview Mode Settings Section */}
+          <div className="settings-section">
+            <h3>💬 Interview Mode</h3>
+            <div className="setting-item">
+              <div className="setting-content">
+                <label htmlFor="text-mode-switch">Text Mode</label>
+                <p className="setting-description">
+                  Use text input instead of voice recording for interviews
+                </p>
+              </div>
+              <label className="switch">
+                <input 
+                  type="checkbox" 
+                  id="text-mode-switch"
+                  checked={textMode}
+                  onChange={(e) => handleToggle('textMode', e.target.checked)}
                 />
                 <span className="slider round"></span>
               </label>
@@ -518,6 +573,22 @@ export const Settings = () => {
           font-size: 13px;
           font-weight: 500;
           color: #333;
+        }
+
+        .setting-content {
+          flex: 1;
+        }
+
+        .setting-content label {
+          display: block;
+          margin-bottom: 4px;
+        }
+
+        .setting-description {
+          font-size: 12px;
+          color: #666;
+          margin: 0;
+          line-height: 1.3;
         }
 
         .switch {
@@ -1020,6 +1091,72 @@ export const Settings = () => {
 
         :global(.dark-mode) .shortcut-help p {
           color: #d1d5db;
+        }
+
+        :global(.dark-mode) .setting-description {
+          color: #d1d5db;
+        }
+
+        .model-selection {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .model-content {
+          width: 100%;
+        }
+
+        .model-content label {
+          font-size: 14px;
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 4px;
+          display: block;
+        }
+
+        .model-description {
+          font-size: 12px;
+          color: #666;
+          margin-bottom: 12px;
+          line-height: 1.4;
+        }
+
+        .model-select {
+          width: 100%;
+          max-width: 300px;
+          padding: 8px 12px;
+          border: 1px solid #e1e5e9;
+          border-radius: 6px;
+          font-size: 14px;
+          font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+          background: white;
+          color: #333;
+          cursor: pointer;
+          outline: none;
+        }
+
+        .model-select:focus {
+          border-color: #667eea;
+          box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+
+        :global(.dark-mode) .model-content label {
+          color: #e5e5e5;
+        }
+
+        :global(.dark-mode) .model-description {
+          color: #d1d5db;
+        }
+
+        :global(.dark-mode) .model-select {
+          background-color: #374151;
+          border-color: #4b5563;
+          color: #e5e5e5;
+        }
+
+        :global(.dark-mode) .model-select:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
         }
       `}</style>
     </>

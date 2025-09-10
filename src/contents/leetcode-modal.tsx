@@ -100,15 +100,24 @@ const DuckCodeModalContent = () => {
   const [keysPressed, setKeysPressed] = useState<Set<string>>(new Set())
   const keysPressedRef = useRef<Set<string>>(new Set())
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [textMode, setTextMode] = useState(false)
+  const [textInput, setTextInput] = useState('')
+  const [isTextInputVisible, setIsTextInputVisible] = useState(false)
+  const [isProcessingText, setIsProcessingText] = useState(false)
+  const [speechBubble, setSpeechBubble] = useState<string | null>(null)
+  const [showCompactInput, setShowCompactInput] = useState(false)
+  const [streamingText, setStreamingText] = useState('')
+  const [isStreaming, setIsStreaming] = useState(false)
 
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
-  // Load recording shortcut from storage
+  // Load recording shortcut and text mode from storage
   useEffect(() => {
-    chrome.storage.sync.get(['recordingShortcut'], (result) => {
+    chrome.storage.sync.get(['recordingShortcut', 'textMode'], (result) => {
       setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
+      setTextMode(result.textMode || false)
     })
   }, [])
 
@@ -609,9 +618,10 @@ const DuckCodeModalContent = () => {
     try {
       setConnectionStatus('connecting')
 
-      // Get API key from storage
-      const result = await chrome.storage.sync.get(['openaiApiKey'])
+      // Get API key and model from storage
+      const result = await chrome.storage.sync.get(['openaiApiKey', 'gptModel'])
       const apiKey = result.openaiApiKey
+      const selectedModel = result.gptModel || 'gpt-5'
 
       if (!apiKey) {
         setTranscript('Please configure your OpenAI API key in Settings.')
@@ -624,12 +634,16 @@ const DuckCodeModalContent = () => {
       setLeetcodeContent(content)
 
       // Initialize AI service with static context
-      const service = new AIInterviewService(apiKey)
+      const service = new AIInterviewService(apiKey, selectedModel)
       service.setStaticContext(content)
       setAiService(service)
 
       setConnectionStatus('connected')
       setIsConnected(true)
+
+      const modeInstructions = textMode
+        ? `Click the "Type Message" button or press and hold ${recordingShortcut.toUpperCase()} to open text input and type your response!`
+        : `Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to start speaking about your approach!`
 
       setTranscript(`Ready for interview! 
 
@@ -639,7 +653,7 @@ Problem Context Loaded:
 - Topics: ${content.topics || 'None'}
 - Hints: ${content.hints || 'None'}
 
-Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to start speaking about your approach!`)
+${modeInstructions}`)
 
     } catch (error) {
       console.error('Failed to initialize:', error)
@@ -701,6 +715,77 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     }
   }
 
+  // Process text input using the AI service
+  const processTextWithOpenAI = async (userText: string) => {
+    if (!aiService) {
+      setTranscript(prev => prev + '\n\nAI service not initialized.')
+      return
+    }
+
+    try {
+      setIsProcessingText(true)
+      setConnectionStatus('connecting')
+
+      // Capture current execution context
+      const currentContent = scrapeLeetCodeContent()
+      const context: InterviewContext = {
+        currentCode: addLineNumbers(currentContent.codeSection || 'No code written yet'),
+        lastExecutedInput: currentContent.lastExecutedInput || '',
+        runtimeError: currentContent.runtimeError || '',
+        runtimeException: currentContent.runtimeException || ''
+      }
+
+      // Add user text to transcript
+      setTranscript(prev => prev + `\n\nYou: ${userText}`)
+
+      // Get AI response with conversation history
+      console.log('Processing user input:', userText)
+      console.log('Current context:', context)
+
+      // If modal is minimized and in text mode, start streaming to speech bubble
+      if (isMinimized && textMode) {
+        setIsStreaming(true)
+        setStreamingText('')
+        setSpeechBubble('')
+
+        const result = await aiService.getStreamingInterviewResponse(userText, context, (chunk) => {
+          setStreamingText(prev => prev + chunk)
+          setSpeechBubble(prev => (prev || '') + chunk)
+        })
+
+        console.log('Received streaming AI result:', result)
+
+        // Log system prompt and user message to transcript
+        setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
+        setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
+        setTranscript(prev => prev + `\n\nInterviewer: ${result.fullResponse}`)
+
+        setIsStreaming(false)
+        // Speech bubble stays up until manually dismissed
+      } else {
+        // Regular non-streaming response for modal mode
+        const result = await aiService.getInterviewResponse(userText, context)
+
+        console.log('Received AI result:', result)
+
+        // Log system prompt in bold and user message
+        setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
+        setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
+        setTranscript(prev => prev + `\n\nInterviewer: ${result.response}`)
+      }
+
+      setConnectionStatus('connected')
+
+    } catch (error) {
+      console.error('Error processing text:', error)
+      setTranscript(prev => prev + `\n\nError: ${error.message}`)
+      setConnectionStatus('connected') // Reset on error
+      setIsStreaming(false)
+    } finally {
+      setIsProcessingText(false)
+    }
+  }
+
 
 
   // Start recording user audio
@@ -729,7 +814,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           if (mediaRecorderRef.current?.stream) {
             mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
           }
-        } catch {}
+        } catch { }
         mediaRecorderRef.current = null
 
         // Set processing state immediately to avoid purple gap
@@ -747,7 +832,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       // Best-effort: stop any acquired tracks if we failed mid-way
       try {
         stream?.getTracks().forEach(track => track.stop())
-      } catch {}
+      } catch { }
       mediaRecorderRef.current = null
       setIsRecording(false)
       setTranscript(prev => prev + '\n\nMicrophone access denied. Please allow microphone access.')
@@ -763,10 +848,10 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           recorder.stop()
           setTranscript(prev => prev + '\n\nRecording stopped. Processing...')
         }
-      } catch {}
+      } catch { }
       try {
         recorder.stream.getTracks().forEach(track => track.stop())
-      } catch {}
+      } catch { }
     }
     mediaRecorderRef.current = null
     setIsRecording(false)
@@ -836,9 +921,22 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           startInterview()
         }
 
-        // If already connected, start recording immediately
-        if (!isRecording && isConnected) {
-          startRecording()
+        // If already connected, handle based on mode
+        if (isConnected) {
+          if (textMode) {
+            if (isMinimized) {
+              // Show compact input when minimized
+              setShowCompactInput(true)
+            } else {
+              // Show text input in modal
+              setIsTextInputVisible(true)
+            }
+          } else {
+            // Start recording for voice mode
+            if (!isRecording) {
+              startRecording()
+            }
+          }
         }
       }
     }
@@ -861,18 +959,39 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       keysPressedRef.current = current
       setKeysPressed(new Set(current))
 
-      // Stop recording if shortcut is released and we were recording
-      if (isRecording && !isShortcutPressed(current)) {
-        stopRecording()
+      // Handle shortcut release based on mode
+      if (!isShortcutPressed(current)) {
+        if (textMode) {
+          if (isMinimized && showCompactInput) {
+            // Hide compact input when shortcut is released
+            setShowCompactInput(false)
+            setTextInput('')
+          } else if (isTextInputVisible) {
+            // Hide text input when shortcut is released
+            setIsTextInputVisible(false)
+            setTextInput('')
+          }
+        } else if (isRecording) {
+          // Stop recording if shortcut is released and we were recording
+          stopRecording()
+        }
       }
     }
 
     const handleBlurOrHide = () => {
-      // On tab blur or visibility change, clear keys and stop recording
+      // On tab blur or visibility change, clear keys and stop recording/hide text input
       keysPressedRef.current = new Set()
       setKeysPressed(new Set())
       if (isRecording) {
         stopRecording()
+      }
+      if (isTextInputVisible) {
+        setIsTextInputVisible(false)
+        setTextInput('')
+      }
+      if (showCompactInput) {
+        setShowCompactInput(false)
+        setTextInput('')
       }
     }
 
@@ -890,18 +1009,29 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
   }, [isRecording, isConnected, interviewMode, recordingShortcut])
 
   // If the shortcut is being held down while we finish connecting,
-  // begin recording as soon as the connection is ready.
+  // begin recording or show text input as soon as the connection is ready.
   useEffect(() => {
-    if (isConnected && !isRecording && isShortcutPressed(keysPressedRef.current)) {
-      startRecording()
+    if (isConnected && isShortcutPressed(keysPressedRef.current)) {
+      if (textMode) {
+        if (isMinimized && !showCompactInput) {
+          setShowCompactInput(true)
+        } else if (!isMinimized && !isTextInputVisible) {
+          setIsTextInputVisible(true)
+        }
+      } else if (!isRecording) {
+        startRecording()
+      }
     }
-  }, [isConnected, isRecording, recordingShortcut])
+  }, [isConnected, isRecording, recordingShortcut, textMode, isTextInputVisible, isMinimized, showCompactInput])
 
-  // Listen for shortcut changes from settings
+  // Listen for shortcut and text mode changes from settings
   useEffect(() => {
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes.recordingShortcut) {
         setRecordingShortcut(changes.recordingShortcut.newValue || 'ctrl+shift+r')
+      }
+      if (changes.textMode) {
+        setTextMode(changes.textMode.newValue || false)
       }
     }
 
@@ -1092,7 +1222,8 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
     const duckCenterY = duckY + 30 // Duck height/2
 
     // Calculate relative position within the modal (0-100%)
-    const relativeX = ((duckCenterX - modalX) / 350) * 100 // 350 is modal width
+    const modalWidth = textMode && isTextInputVisible ? 450 : 350
+    const relativeX = ((duckCenterX - modalX) / modalWidth) * 100
     const relativeY = ((duckCenterY - modalY) / 400) * 100 // 400 is approximate modal height
 
     // Clamp values to ensure they're within reasonable bounds
@@ -1111,7 +1242,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
     if (dragDistance < 5) {
       // Calculate optimal modal position to ensure it's fully on screen
-      const modalWidth = 350
+      const modalWidth = textMode && isTextInputVisible ? 450 : 350
       const modalHeight = 400 // Approximate modal height
       const padding = 20 // Minimum distance from screen edges
 
@@ -1146,6 +1277,13 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       setIsOpening(true)
       setIsMinimized(false)
 
+      // Clear speech bubble and compact input when opening modal
+      setSpeechBubble(null)
+      setShowCompactInput(false)
+      setTextInput('')
+      setIsStreaming(false)
+      setStreamingText('')
+
       // Remove opening animation after it completes
       setTimeout(() => setIsOpening(false), 300)
     }
@@ -1162,6 +1300,31 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       }
     }
   }, [isDuckDragging, duckDragOffset, duckPosition])
+
+  // Handle clicks outside speech bubble (text input stays persistent)
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Element
+
+      // Don't dismiss if clicking on duck or speech bubble/input elements
+      if (target.closest('.duck-minimized') ||
+        target.closest('.speech-bubble') ||
+        target.closest('.compact-text-input')) {
+        return
+      }
+
+      // Only dismiss speech bubble, keep text input persistent
+      setSpeechBubble(null)
+      setIsStreaming(false)
+      setStreamingText('')
+      // Text input stays open until manually closed with X button
+    }
+
+    if (isMinimized && speechBubble) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [isMinimized, speechBubble])
 
   const startInterview = async () => {
     setInterviewMode(true)
@@ -1189,10 +1352,10 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           }
           try {
             mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
-          } catch {}
+          } catch { }
           mediaRecorderRef.current = null
         }
-      } catch {}
+      } catch { }
     }
   }, [])
 
@@ -1201,6 +1364,30 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
       stopRecording()
     } else {
       startRecording()
+    }
+  }
+
+  // Handle text input submission
+  const handleTextSubmit = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault()
+    }
+
+    if (!textInput.trim() || isProcessingText) return
+
+    const userText = textInput.trim()
+    setTextInput('')
+    setIsTextInputVisible(false)
+    setShowCompactInput(false)
+
+    await processTextWithOpenAI(userText)
+  }
+
+  // Handle text input key press
+  const handleTextKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleTextSubmit()
     }
   }
 
@@ -1239,33 +1426,284 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
   if (isMinimized) {
     console.log('Duck position:', duckPosition, 'Window size:', window.innerWidth, window.innerHeight)
     return (
-      <div
-        className="duck-minimized"
-        style={{
-          position: 'fixed',
-          left: `${duckPosition.x}px`,
-          top: `${duckPosition.y}px`,
-          width: '60px',
-          height: '60px',
-          background: getDuckColor(),
-          borderRadius: '50%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '28px',
-          cursor: isDuckDragging ? 'grabbing' : 'grab',
-          boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15), 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 4px rgba(102, 126, 234, 0.3)',
-          zIndex: 9999,
-          transition: isDuckDragging ? 'none' : 'all 0.3s ease',
-          userSelect: 'none',
-          transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)'
-        }}
-        onMouseDown={handleDuckMouseDown}
-        onClick={handleDuckClick}
-        title="Open DuckCode"
-      >
-        <img src={duckIconUrl} alt="DuckCode" style={{ width: '36px', height: '36px', pointerEvents: 'none' }} />
-      </div>
+      <>
+        {/* Speech Bubble */}
+        {(speechBubble || isStreaming) && (
+          <div
+            className="speech-bubble"
+            style={{
+              position: 'fixed',
+              left: (() => {
+                const screenWidth = window.innerWidth;
+                const bubbleWidth = Math.min(350, screenWidth * 0.4);
+                
+                // Expand toward center based on duck position
+                if (duckPosition.x < screenWidth / 2) {
+                  // Duck on left, bubble expands right
+                  return Math.min(duckPosition.x + 70, screenWidth - bubbleWidth - 10);
+                } else {
+                  // Duck on right, bubble expands left
+                  return Math.max(duckPosition.x - bubbleWidth - 10, 10);
+                }
+              })() + 'px',
+              top: `${Math.max(10, Math.min(duckPosition.y + 10, window.innerHeight - 150))}px`,
+              zIndex: 10000,
+              width: `${Math.min(350, window.innerWidth * 0.4)}px`,
+              background: 'white',
+              borderRadius: '18px',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+              border: '1px solid #e1e5e9',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              position: 'relative',
+              transform: 'translateZ(0)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isStreaming && <div 
+              className="typing-indicator"
+              style={{
+                position: 'absolute',
+                top: '-8px',
+                left: '16px',
+                display: 'flex',
+                gap: '2px',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{
+                width: '6px',
+                height: '6px',
+                background: 'rgba(0, 0, 0, 0.3)',
+                borderRadius: '50%',
+                animation: 'typingDot 1.4s infinite ease-in-out',
+                animationDelay: '-0.32s',
+              }}></span>
+              <span style={{
+                width: '6px',
+                height: '6px',
+                background: 'rgba(0, 0, 0, 0.3)',
+                borderRadius: '50%',
+                animation: 'typingDot 1.4s infinite ease-in-out',
+                animationDelay: '-0.16s',
+              }}></span>
+              <span style={{
+                width: '6px',
+                height: '6px',
+                background: 'rgba(0, 0, 0, 0.3)',
+                borderRadius: '50%',
+                animation: 'typingDot 1.4s infinite ease-in-out',
+                animationDelay: '0s',
+              }}></span>
+            </div>}
+            <div 
+              className="speech-bubble-content"
+              style={{
+                padding: '12px 16px',
+                fontSize: '14px',
+                lineHeight: '1.4',
+                color: '#333',
+                minHeight: '20px',
+                position: 'relative',
+              }}
+            >
+              {speechBubble || (isStreaming ? 'Thinking...' : '')}
+              {isStreaming && speechBubble && <span 
+                className="cursor"
+                style={{
+                  animation: 'blink 1s infinite',
+                  color: 'rgba(0, 0, 0, 0.5)',
+                  fontWeight: 'normal',
+                }}
+              >|</span>}
+            </div>
+            <button
+              className="speech-bubble-close"
+              style={{
+                position: 'absolute',
+                top: '4px',
+                right: '4px',
+                background: 'rgba(0, 0, 0, 0.1)',
+                border: 'none',
+                fontSize: '12px',
+                cursor: 'pointer',
+                color: '#666',
+                width: '20px',
+                height: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                opacity: '0.7',
+              }}
+              onClick={() => {
+                setSpeechBubble(null)
+                setIsStreaming(false)
+                setStreamingText('')
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Compact Text Input */}
+        {textMode && showCompactInput && (
+          <div
+            className="compact-text-input"
+            style={{
+              position: 'fixed',
+              left: (() => {
+                const screenWidth = window.innerWidth;
+                const inputWidth = Math.min(320, screenWidth * 0.4);
+                
+                // Expand toward center based on duck position
+                if (duckPosition.x < screenWidth / 2) {
+                  // Duck on left, input expands right
+                  return Math.min(duckPosition.x + 70, screenWidth - inputWidth - 10);
+                } else {
+                  // Duck on right, input expands left
+                  return Math.max(duckPosition.x - inputWidth - 10, 10);
+                }
+              })() + 'px',
+              top: `${Math.max(10, Math.min(duckPosition.y + 10, window.innerHeight - 80))}px`,
+              zIndex: 10000,
+              width: `${Math.min(320, window.innerWidth * 0.4)}px`,
+              background: 'white',
+              borderRadius: '25px',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+              border: '1px solid #e1e5e9',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              minWidth: '280px',
+              maxWidth: '320px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="compact-input-close"
+              style={{
+                position: 'absolute',
+                top: '4px',
+                right: '4px',
+                background: 'rgba(0, 0, 0, 0.1)',
+                border: 'none',
+                fontSize: '12px',
+                cursor: 'pointer',
+                color: '#666',
+                width: '20px',
+                height: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                opacity: '0.7',
+                zIndex: 1,
+              }}
+              onClick={() => {
+                setShowCompactInput(false)
+                setTextInput('')
+              }}
+            >
+              ×
+            </button>
+            <form onSubmit={handleTextSubmit}>
+              <div 
+                className="compact-input-wrapper"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '8px 8px 8px 16px',
+                  gap: '8px',
+                }}
+              >
+                <input
+                  type="text"
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyPress={handleTextKeyPress}
+                  placeholder="Type your message..."
+                  className="compact-input"
+                  style={{
+                    flex: 1,
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    background: 'transparent',
+                    padding: '8px 0',
+                    color: '#333',
+                  }}
+                  autoFocus
+                  disabled={isProcessingText}
+                />
+                <button
+                  type="submit"
+                  className="compact-send-btn"
+                  style={{
+                    background: isProcessingText ? '#ccc' : '#007AFF',
+                    border: 'none',
+                    cursor: isProcessingText ? 'not-allowed' : 'pointer',
+                    padding: '8px',
+                    borderRadius: '50%',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '32px',
+                    height: '32px',
+                    transition: 'all 0.2s ease',
+                  }}
+                  disabled={!textInput.trim() || isProcessingText}
+                >
+                  {isProcessingText ? (
+                    <div style={{ 
+                      width: '12px', 
+                      height: '12px', 
+                      border: '2px solid white', 
+                      borderTop: '2px solid transparent', 
+                      borderRadius: '50%', 
+                      animation: 'spin 1s linear infinite' 
+                    }}></div>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22,2 15,22 11,13 2,9"></polygon>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Duck */}
+        <div
+          className="duck-minimized"
+          style={{
+            position: 'fixed',
+            left: `${duckPosition.x}px`,
+            top: `${duckPosition.y}px`,
+            width: '60px',
+            height: '60px',
+            background: getDuckColor(),
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '28px',
+            cursor: isDuckDragging ? 'grabbing' : 'grab',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15), 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 4px rgba(102, 126, 234, 0.3)',
+            zIndex: 9999,
+            transition: isDuckDragging ? 'none' : 'all 0.3s ease',
+            userSelect: 'none',
+            transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)'
+          }}
+          onMouseDown={handleDuckMouseDown}
+          onClick={handleDuckClick}
+          title="Open DuckCode"
+        >
+          <img src={duckIconUrl} alt="DuckCode" style={{ width: '36px', height: '36px', pointerEvents: 'none' }} />
+        </div>
+      </>
     )
   }
 
@@ -1307,7 +1745,8 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
             className="close-btn"
             onClick={() => {
               // Update duck position to current modal position
-              const modalCenterX = position.x + 175 // Modal width/2 (350/2)
+              const currentModalWidth = textMode && isTextInputVisible ? 450 : 350
+              const modalCenterX = position.x + (currentModalWidth / 2)
               const modalCenterY = position.y + 200 // Approximate modal height/2
 
               const windowWidth = window.innerWidth
@@ -1397,28 +1836,81 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
           {!interviewMode ? (
             <button className="start-btn" onClick={startInterview}>
-              <span className="btn-icon">🎤</span>
-              Start Voice Interview
+              <span className="btn-icon">{textMode ? '💬' : '🎤'}</span>
+              Start {textMode ? 'Text' : 'Voice'} Interview
             </button>
           ) : (
             <div className="interview-controls">
-              <button
-                className={`record-btn ${isRecording ? 'recording' : ''}`}
-                onMouseDown={handleRecordMouseDown}
-                onMouseUp={handleRecordMouseUp}
-                onMouseLeave={handleRecordMouseUp}
-                disabled={!isConnected}
-              >
-                <span className="btn-icon">
-                  {isRecording ? '⏹️' : '🎤'}
-                </span>
-                {isRecording ? 'Recording...' : 'Hold to Record'}
-              </button>
+              {textMode ? (
+                <>
+                  <button
+                    className={`text-btn ${isTextInputVisible ? 'active' : ''}`}
+                    onClick={() => setIsTextInputVisible(!isTextInputVisible)}
+                    disabled={!isConnected || isProcessingText}
+                  >
+                    <span className="btn-icon">
+                      {isProcessingText ? '⏳' : '💬'}
+                    </span>
+                    {isProcessingText ? 'Processing...' : isTextInputVisible ? 'Hide Input' : 'Type Message'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className={`record-btn ${isRecording ? 'recording' : ''}`}
+                  onMouseDown={handleRecordMouseDown}
+                  onMouseUp={handleRecordMouseUp}
+                  onMouseLeave={handleRecordMouseUp}
+                  disabled={!isConnected}
+                >
+                  <span className="btn-icon">
+                    {isRecording ? '⏹️' : '🎤'}
+                  </span>
+                  {isRecording ? 'Recording...' : 'Hold to Record'}
+                </button>
+              )}
 
               <button className="stop-btn" onClick={stopInterview}>
                 <span className="btn-icon">❌</span>
                 End
               </button>
+            </div>
+          )}
+
+          {/* Text Input Area */}
+          {textMode && isTextInputVisible && (
+            <div className="text-input-area">
+              <form onSubmit={handleTextSubmit}>
+                <textarea
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyPress={handleTextKeyPress}
+                  placeholder="Type your response here... (Enter to send, Shift+Enter for new line)"
+                  className="text-input"
+                  autoFocus
+                  disabled={isProcessingText}
+                />
+                <div className="text-input-actions">
+                  <button
+                    type="submit"
+                    className="send-btn"
+                    disabled={!textInput.trim() || isProcessingText}
+                  >
+                    <span className="btn-icon">📤</span>
+                    Send
+                  </button>
+                  <button
+                    type="button"
+                    className="cancel-btn"
+                    onClick={() => {
+                      setIsTextInputVisible(false)
+                      setTextInput('')
+                    }}
+                  >
+                    <span className="btn-icon">❌</span>
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 
@@ -1435,7 +1927,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
       <style>{`
         .duckcode-modal {
-          width: 350px;
+          width: ${textMode && isTextInputVisible ? '450px' : '350px'};
           background: white;
           border-radius: 16px;
           box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
@@ -1444,6 +1936,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           user-select: none;
           backdrop-filter: blur(10px);
           background: rgba(255, 255, 255, 0.95);
+          transition: width 0.3s ease;
         }
 
         .duckcode-modal.opening {
@@ -1624,7 +2117,7 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           gap: 8px;
         }
 
-        .record-btn, .stop-btn {
+        .record-btn, .text-btn, .stop-btn {
           flex: 1;
           border: none;
           border-radius: 8px;
@@ -1640,8 +2133,8 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           user-select: none;
         }
 
-        .record-btn {
-          flex: 2; /* Make record button wider */
+        .record-btn, .text-btn {
+          flex: 2; /* Make record/text button wider */
         }
 
         .record-btn {
@@ -1659,12 +2152,26 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
           cursor: not-allowed;
         }
 
+        .text-btn {
+          background: #007bff;
+          color: white;
+        }
+
+        .text-btn.active {
+          background: #28a745;
+        }
+
+        .text-btn:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+        }
+
         .stop-btn {
           background: #6c757d;
           color: white;
         }
 
-        .record-btn:hover:not(:disabled), .stop-btn:hover {
+        .record-btn:hover:not(:disabled), .text-btn:hover:not(:disabled), .stop-btn:hover {
           transform: translateY(-1px);
         }
 
@@ -1702,6 +2209,76 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
         .btn-icon {
           font-size: 14px;
+        }
+
+        .text-input-area {
+          background: #f8f9fa;
+          border-radius: 8px;
+          padding: 12px;
+          border: 1px solid #e9ecef;
+        }
+
+        .text-input {
+          width: 100%;
+          min-height: 80px;
+          max-height: 120px;
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 6px;
+          font-size: 14px;
+          font-family: inherit;
+          resize: vertical;
+          outline: none;
+          margin-bottom: 8px;
+        }
+
+        .text-input:focus {
+          border-color: #007bff;
+          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+        }
+
+        .text-input:disabled {
+          background: #f8f9fa;
+          color: #6c757d;
+          cursor: not-allowed;
+        }
+
+        .text-input-actions {
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+        }
+
+        .send-btn, .cancel-btn {
+          border: none;
+          border-radius: 6px;
+          padding: 6px 12px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          transition: all 0.2s;
+        }
+
+        .send-btn {
+          background: #28a745;
+          color: white;
+        }
+
+        .send-btn:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+        }
+
+        .cancel-btn {
+          background: #6c757d;
+          color: white;
+        }
+
+        .send-btn:hover:not(:disabled), .cancel-btn:hover {
+          transform: translateY(-1px);
         }
 
         /* Minimized Duck Styles */
@@ -1752,6 +2329,257 @@ Hold the Record button or press and hold ${recordingShortcut.toUpperCase()} to s
 
         .duck-minimized.snapping {
           transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* Speech Bubble Styles */
+        .speech-bubble {
+          max-width: 320px !important;
+          background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%) !important;
+          border-radius: 18px !important;
+          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+          border: 1px solid #e1e5e9 !important;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+          animation: speechBubbleAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+          position: relative !important;
+          overflow: hidden !important;
+        }
+
+        .speech-bubble::before {
+          content: '' !important;
+          position: absolute !important;
+          left: -10px !important;
+          top: 30px !important;
+          width: 0 !important;
+          height: 0 !important;
+          border-top: 10px solid transparent !important;
+          border-bottom: 10px solid transparent !important;
+          border-right: 10px solid #f8f9fa !important;
+          filter: drop-shadow(-1px 0 1px rgba(0, 0, 0, 0.1)) !important;
+        }
+
+        .speech-bubble-header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+          padding: 8px 16px !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 8px !important;
+          color: white !important;
+          font-size: 13px !important;
+          font-weight: 600 !important;
+        }
+
+        .interviewer-avatar {
+          font-size: 16px !important;
+        }
+
+        .interviewer-name {
+          flex: 1 !important;
+        }
+
+        .typing-indicator {
+          display: flex !important;
+          gap: 2px !important;
+          align-items: center !important;
+        }
+
+        .typing-indicator span {
+          width: 4px !important;
+          height: 4px !important;
+          background: rgba(255, 255, 255, 0.8) !important;
+          border-radius: 50% !important;
+          animation: typingDot 1.4s infinite ease-in-out !important;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s !important; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s !important; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0s !important; }
+
+        @keyframes typingDot {
+          0%, 80%, 100% { 
+            transform: scale(0.8) !important;
+            opacity: 0.5 !important;
+          }
+          40% { 
+            transform: scale(1) !important;
+            opacity: 1 !important;
+          }
+        }
+
+        .speech-bubble-content {
+          padding: 16px !important;
+          font-size: 14px !important;
+          line-height: 1.5 !important;
+          color: #333 !important;
+          min-height: 20px !important;
+          position: relative !important;
+        }
+
+        .cursor {
+          animation: blink 1s infinite;
+          color: #667eea;
+          font-weight: bold;
+        }
+
+        @keyframes blink {
+          0%, 50% { opacity: 1; }
+          51%, 100% { opacity: 0; }
+        }
+
+        .speech-bubble-close {
+          position: absolute;
+          top: 6px;
+          right: 8px;
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          font-size: 14px;
+          cursor: pointer;
+          color: white;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          transition: all 0.2s;
+          backdrop-filter: blur(10px);
+        }
+
+        .speech-bubble-close:hover {
+          background: rgba(255, 255, 255, 0.3);
+          transform: scale(1.1);
+        }
+
+        @keyframes speechBubbleAppear {
+          0% {
+            opacity: 0 !important;
+            transform: scale(0.8) translateY(10px) !important;
+          }
+          100% {
+            opacity: 1 !important;
+            transform: scale(1) translateY(0) !important;
+          }
+        }
+
+        /* Compact Text Input Styles */
+        .compact-text-input {
+          background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%) !important;
+          border-radius: 18px !important;
+          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+          border: 1px solid #e1e5e9 !important;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+          animation: compactInputAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+          position: relative !important;
+          min-width: 280px !important;
+          overflow: hidden !important;
+        }
+
+        .compact-text-input::before {
+          content: '' !important;
+          position: absolute !important;
+          left: -10px !important;
+          top: 50% !important;
+          transform: translateY(-50%) !important;
+          width: 0 !important;
+          height: 0 !important;
+          border-top: 10px solid transparent !important;
+          border-bottom: 10px solid transparent !important;
+          border-right: 10px solid #ffffff !important;
+          filter: drop-shadow(-1px 0 1px rgba(0, 0, 0, 0.1)) !important;
+        }
+
+        .compact-input-header {
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+          padding: 8px 16px !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 8px !important;
+          color: white !important;
+          font-size: 13px !important;
+          font-weight: 600 !important;
+        }
+
+        .user-avatar {
+          font-size: 16px !important;
+        }
+
+        .user-name {
+          flex: 1 !important;
+        }
+
+        .compact-input-wrapper {
+          display: flex !important;
+          align-items: center !important;
+          padding: 12px 16px !important;
+          gap: 12px !important;
+        }
+
+        .compact-input {
+          flex: 1 !important;
+          border: none !important;
+          outline: none !important;
+          font-size: 14px !important;
+          font-family: inherit !important;
+          background: transparent !important;
+          padding: 8px 12px !important;
+          border-radius: 8px !important;
+          transition: background-color 0.2s !important;
+        }
+
+        .compact-input:focus {
+          background: rgba(40, 167, 69, 0.05);
+        }
+
+        .compact-input::placeholder {
+          color: #999;
+        }
+
+        .compact-input:disabled {
+          color: #666;
+          background: rgba(0, 0, 0, 0.05);
+        }
+
+        .compact-send-btn {
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+          border: none !important;
+          font-size: 14px !important;
+          cursor: pointer !important;
+          padding: 8px 12px !important;
+          border-radius: 8px !important;
+          color: white !important;
+          font-weight: 600 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          transition: all 0.2s !important;
+          min-width: 60px !important;
+        }
+
+        .compact-send-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+        }
+
+        .compact-send-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
+        }
+
+        @keyframes compactInputAppear {
+          0% {
+            opacity: 0 !important;
+            transform: scale(0.8) translateY(-10px) !important;
+          }
+          100% {
+            opacity: 1 !important;
+            transform: scale(1) translateY(0) !important;
+          }
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
 
       `}</style>
