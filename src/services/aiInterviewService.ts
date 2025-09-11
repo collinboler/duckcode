@@ -23,15 +23,9 @@ class AIInterviewService {
   private apiKey: string
   private conversationHistory: ConversationMessage[] = []
   private staticContext: LeetCodeContent | null = null
-  private model: string = 'gpt-5'
 
-  constructor(apiKey: string, model?: string) {
+  constructor(apiKey: string) {
     this.apiKey = apiKey
-    this.model = model || 'gpt-5'
-  }
-
-  setModel(model: string) {
-    this.model = model
   }
 
   setStaticContext(leetcodeContent: LeetCodeContent) {
@@ -51,37 +45,15 @@ class AIInterviewService {
 
     const { problemTitle, problemDescription, topics, hints, testCases } = this.staticContext
 
-    return `You are a mock coding interviewer helping someone practice technical interviews.
+    return `You are a coding interviewer for: ${problemTitle}
 
-PROBLEM CONTEXT (Static - doesn't change during interview):
-- Problem: ${problemTitle}
-- Description: ${problemDescription}
-- Topics/Tags: ${topics || 'None specified'}
-- Test Cases: ${testCases || 'None provided'}
-- Hints: ${hints || 'No hints available'}
+Key topics: ${topics || 'General'}
 
-INTERVIEW GUIDELINES:
-- Act as a friendly but professional interviewer
-- Ask follow-up questions about their approach
-- Help them think through edge cases and provide constructive feedback
-- You can see their current code and any execution results/errors in the user messages
-- The topics/tags give you insight into what algorithms or data structures are relevant
-- If there are runtime errors or exceptions, help them debug and understand what went wrong
-- If hints are available, you can reference them subtly to guide the candidate without being too direct
-- Keep responses conversational and encouraging
-- Respond in 1-2 brief sentences maximum
-- Be extremely concise - aim for under 20 words when possible
-- Focus on the problem-solving process, not just the final answer
-
-IMPORTANT OUTPUT FORMATTING:
-- Never use code blocks, backticks, or any markdown formatting
-- Never use special characters like brackets, parentheses, curly braces, or symbols in your responses
-- Write everything as plain text as if you were speaking it aloud
-- Instead of "String[]" say "string array"
-- Instead of "nums[i]" say "nums at index i"
-- Instead of "O(n)" say "linear time complexity"
-- Instead of "HashMap<>" say "hash map"
-- Speak naturally as if in a real interview conversation`
+Guidelines:
+- Be extremely concise (under 15 words)
+- Help debug code and suggest improvements
+- No special characters or code blocks
+- Speak naturally as plain text`
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
@@ -155,7 +127,7 @@ IMPORTANT OUTPUT FORMATTING:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.model,
+        model: 'gpt-5-nano',
         messages,
         reasoning_effort: "low",    // optional: less reasoning for faster response
         verbosity: "low"
@@ -229,7 +201,7 @@ IMPORTANT OUTPUT FORMATTING:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.model,
+        model: 'gpt-5-nano',
         messages,
         reasoning_effort: "low",
         verbosity: "low",
@@ -306,19 +278,15 @@ IMPORTANT OUTPUT FORMATTING:
   private buildContextMessage(context: InterviewContext): string {
     const parts = []
 
-    parts.push(`CURRENT CONTEXT:`)
-    parts.push(`- Current Code: ${context.currentCode || 'No code written yet'}`)
-
-    if (context.lastExecutedInput) {
-      parts.push(`- Last Input: ${context.lastExecutedInput}`)
+    // Only include code if it's not empty and not too long
+    if (context.currentCode && context.currentCode.trim() !== 'No code written yet') {
+      const codeLines = context.currentCode.split('\n').slice(0, 20) // Limit to 20 lines
+      parts.push(`Code: ${codeLines.join('\n')}`)
     }
 
-    if (context.runtimeError) {
-      parts.push(`- Runtime Error: ${context.runtimeError}`)
-    }
-
-    if (context.runtimeException) {
-      parts.push(`- Exception: ${context.runtimeException}`)
+    // Only include errors if they exist and are short
+    if (context.runtimeError && context.runtimeError.length < 200) {
+      parts.push(`Error: ${context.runtimeError}`)
     }
 
     return parts.join('\n')

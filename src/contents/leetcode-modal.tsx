@@ -64,15 +64,37 @@ if (!PUBLISHABLE_KEY) {
 }
 
 // Function to open sidepanel settings
-const openSidepanelSettings = () => {
-  // Send message to background script to open sidepanel and navigate to settings
-  chrome.runtime.sendMessage({
-    action: 'openSidepanel',
-    route: '/settings'
-  }).catch((error) => {
-    console.error('Failed to send message to open sidepanel:', error)
-  })
-}
+const openSidepanelSettings = (() => {
+  let isOpening = false
+  
+  return () => {
+    // Prevent multiple rapid clicks
+    if (isOpening) {
+      console.log('Sidepanel is already opening, ignoring click')
+      return
+    }
+    
+    isOpening = true
+    
+    // Send message to background script to open sidepanel and navigate to settings
+    chrome.runtime.sendMessage({
+      action: 'openSidepanel',
+      route: '/settings'
+    })
+    .then((response) => {
+      console.log('Sidepanel opened successfully:', response)
+    })
+    .catch((error) => {
+      console.error('Failed to send message to open sidepanel:', error)
+    })
+    .finally(() => {
+      // Reset the flag after a short delay to allow the action to complete
+      setTimeout(() => {
+        isOpening = false
+      }, 1000)
+    })
+  }
+})()
 
 // Main modal content component (needs to be inside ClerkProvider)
 const DuckCodeModalContent = () => {
@@ -108,6 +130,9 @@ const DuckCodeModalContent = () => {
   const [showCompactInput, setShowCompactInput] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [showDebugTab, setShowDebugTab] = useState(false)
+  const [lastSystemPrompt, setLastSystemPrompt] = useState('')
+  const [lastUserMessage, setLastUserMessage] = useState('')
 
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -618,10 +643,9 @@ const DuckCodeModalContent = () => {
     try {
       setConnectionStatus('connecting')
 
-      // Get API key and model from storage
-      const result = await chrome.storage.sync.get(['openaiApiKey', 'gptModel'])
+      // Get API key from storage
+      const result = await chrome.storage.sync.get(['openaiApiKey'])
       const apiKey = result.openaiApiKey
-      const selectedModel = result.gptModel || 'gpt-5'
 
       if (!apiKey) {
         setTranscript('Please configure your OpenAI API key in Settings.')
@@ -634,7 +658,7 @@ const DuckCodeModalContent = () => {
       setLeetcodeContent(content)
 
       // Initialize AI service with static context
-      const service = new AIInterviewService(apiKey, selectedModel)
+      const service = new AIInterviewService(apiKey)
       service.setStaticContext(content)
       setAiService(service)
 
@@ -690,6 +714,10 @@ ${modeInstructions}`)
       const result = await aiService.getInterviewResponse(userText, context)
 
       console.log('Received AI result:', result)
+
+      // Store debug info
+      setLastSystemPrompt(result.systemPrompt)
+      setLastUserMessage(result.userMessage)
 
       // Log system prompt in bold and user message
       setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
@@ -755,6 +783,10 @@ ${modeInstructions}`)
 
         console.log('Received streaming AI result:', result)
 
+        // Store debug info
+        setLastSystemPrompt(result.systemPrompt)
+        setLastUserMessage(result.userMessage)
+
         // Log system prompt and user message to transcript
         setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
@@ -767,6 +799,10 @@ ${modeInstructions}`)
         const result = await aiService.getInterviewResponse(userText, context)
 
         console.log('Received AI result:', result)
+
+        // Store debug info
+        setLastSystemPrompt(result.systemPrompt)
+        setLastUserMessage(result.userMessage)
 
         // Log system prompt in bold and user message
         setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
@@ -1301,30 +1337,7 @@ ${modeInstructions}`)
     }
   }, [isDuckDragging, duckDragOffset, duckPosition])
 
-  // Handle clicks outside speech bubble (text input stays persistent)
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Element
-
-      // Don't dismiss if clicking on duck or speech bubble/input elements
-      if (target.closest('.duck-minimized') ||
-        target.closest('.speech-bubble') ||
-        target.closest('.compact-text-input')) {
-        return
-      }
-
-      // Only dismiss speech bubble, keep text input persistent
-      setSpeechBubble(null)
-      setIsStreaming(false)
-      setStreamingText('')
-      // Text input stays open until manually closed with X button
-    }
-
-    if (isMinimized && speechBubble) {
-      document.addEventListener('click', handleClickOutside)
-      return () => document.removeEventListener('click', handleClickOutside)
-    }
-  }, [isMinimized, speechBubble])
+  // No auto-dismissal - components only close when X button is pressed
 
   const startInterview = async () => {
     setInterviewMode(true)
@@ -1437,16 +1450,34 @@ ${modeInstructions}`)
                 const screenWidth = window.innerWidth;
                 const bubbleWidth = Math.min(350, screenWidth * 0.4);
                 
-                // Expand toward center based on duck position
-                if (duckPosition.x < screenWidth / 2) {
-                  // Duck on left, bubble expands right
-                  return Math.min(duckPosition.x + 70, screenWidth - bubbleWidth - 10);
+                const isLeft = duckPosition.x < screenWidth / 2;
+                
+                if (isLeft) {
+                  // Duck on left side - bubble goes right, closer to duck
+                  return duckPosition.x + 75;
                 } else {
-                  // Duck on right, bubble expands left
-                  return Math.max(duckPosition.x - bubbleWidth - 10, 10);
+                  // Duck on right side - bubble goes left, closer to duck
+                  return duckPosition.x - bubbleWidth - 15;
                 }
               })() + 'px',
-              top: `${Math.max(10, Math.min(duckPosition.y + 10, window.innerHeight - 150))}px`,
+              top: (() => {
+                // Start at same Y level as duck (centered)
+                const duckCenterY = duckPosition.y + 30; // Duck is 60px tall, so center is +30
+                const estimatedBubbleHeight = Math.max(50, (speechBubble?.length || 50) / 40 * 20); // Rough height estimate
+                
+                // Try to center bubble with duck first
+                let bubbleTop = duckCenterY - (estimatedBubbleHeight / 2);
+                
+                // Adjust if it would go off screen
+                const screenHeight = window.innerHeight;
+                if (bubbleTop < 10) {
+                  bubbleTop = 10; // Too high, move down
+                } else if (bubbleTop + estimatedBubbleHeight > screenHeight - 10) {
+                  bubbleTop = screenHeight - estimatedBubbleHeight - 10; // Too low, move up
+                }
+                
+                return bubbleTop;
+              })() + 'px',
               zIndex: 10000,
               width: `${Math.min(350, window.innerWidth * 0.4)}px`,
               background: 'white',
@@ -1556,16 +1587,34 @@ ${modeInstructions}`)
                 const screenWidth = window.innerWidth;
                 const inputWidth = Math.min(320, screenWidth * 0.4);
                 
-                // Expand toward center based on duck position
-                if (duckPosition.x < screenWidth / 2) {
-                  // Duck on left, input expands right
-                  return Math.min(duckPosition.x + 70, screenWidth - inputWidth - 10);
+                const isLeft = duckPosition.x < screenWidth / 2;
+                
+                if (isLeft) {
+                  // Duck on left side - input goes right, closer to duck
+                  return duckPosition.x + 75;
                 } else {
-                  // Duck on right, input expands left
-                  return Math.max(duckPosition.x - inputWidth - 10, 10);
+                  // Duck on right side - input goes left, closer to duck
+                  return duckPosition.x - inputWidth - 15;
                 }
               })() + 'px',
-              top: `${Math.max(10, Math.min(duckPosition.y + 10, window.innerHeight - 80))}px`,
+              top: (() => {
+                // Start at same Y level as duck (centered)
+                const duckCenterY = duckPosition.y + 30; // Duck is 60px tall, so center is +30
+                const inputHeight = 50; // Text input height
+                
+                // Center input with duck
+                let inputTop = duckCenterY - (inputHeight / 2);
+                
+                // Adjust if it would go off screen
+                const screenHeight = window.innerHeight;
+                if (inputTop < 10) {
+                  inputTop = 10; // Too high, move down
+                } else if (inputTop + inputHeight > screenHeight - 10) {
+                  inputTop = screenHeight - inputHeight - 10; // Too low, move up
+                }
+                
+                return inputTop;
+              })() + 'px',
               zIndex: 10000,
               width: `${Math.min(320, window.innerWidth * 0.4)}px`,
               background: 'white',
@@ -1916,8 +1965,32 @@ ${modeInstructions}`)
 
           {transcript && (
             <div className="transcript">
-              <div className="transcript-header">💬 Interview Transcript</div>
+              <div className="transcript-header">
+                <span>💬 Interview Transcript</span>
+                <button 
+                  onClick={() => setShowDebugTab(!showDebugTab)}
+                  className="debug-toggle"
+                >
+                  🐛 Debug
+                </button>
+              </div>
               <div className="transcript-content">{transcript}</div>
+            </div>
+          )}
+
+          {showDebugTab && (
+            <div className="debug-panel">
+              <div className="debug-header">🐛 Debug Context</div>
+              <div className="debug-content">
+                <div className="debug-section">
+                  <h4>System Prompt ({lastSystemPrompt.length} chars):</h4>
+                  <pre className="debug-text">{lastSystemPrompt}</pre>
+                </div>
+                <div className="debug-section">
+                  <h4>User Message ({lastUserMessage.length} chars):</h4>
+                  <pre className="debug-text">{lastUserMessage}</pre>
+                </div>
+              </div>
             </div>
           )}
         </SignedIn>
@@ -2192,6 +2265,9 @@ ${modeInstructions}`)
         .transcript-header {
           background: #e9ecef;
           padding: 8px 12px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
           font-size: 12px;
           font-weight: 600;
           color: #495057;
@@ -2580,6 +2656,68 @@ ${modeInstructions}`)
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+
+        .debug-toggle {
+          background: #007AFF;
+          color: white;
+          border: none;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .debug-toggle:hover {
+          background: #0056CC;
+        }
+
+        .debug-panel {
+          background: #f8f9fa;
+          border: 1px solid #e1e5e9;
+          border-radius: 8px;
+          margin-top: 8px;
+          max-height: 400px;
+          overflow-y: auto;
+        }
+
+        .debug-header {
+          background: #e9ecef;
+          padding: 8px 12px;
+          font-weight: 600;
+          font-size: 14px;
+          border-bottom: 1px solid #dee2e6;
+        }
+
+        .debug-content {
+          padding: 12px;
+        }
+
+        .debug-section {
+          margin-bottom: 16px;
+        }
+
+        .debug-section h4 {
+          margin: 0 0 8px 0;
+          font-size: 13px;
+          color: #666;
+          font-weight: 600;
+        }
+
+        .debug-text {
+          background: white;
+          border: 1px solid #e1e5e9;
+          border-radius: 4px;
+          padding: 8px;
+          font-size: 11px;
+          font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          max-height: 200px;
+          overflow-y: auto;
+          line-height: 1.4;
+          color: #333;
         }
 
       `}</style>
