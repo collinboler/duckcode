@@ -78,14 +78,14 @@ const openSidepanelSettings = (() => {
     chrome.runtime.sendMessage({
       action: 'openSidepanel',
       route: '/settings'
-    })
-    .then((response) => {
-      console.log('Sidepanel opened successfully:', response)
-    })
-    .catch((error) => {
-      console.error('Failed to send message to open sidepanel:', error)
-    })
-    .finally(() => {
+    }, (response) => {
+      // Check for runtime errors first
+      if (chrome.runtime.lastError) {
+        console.error('Runtime error opening sidepanel:', chrome.runtime.lastError.message)
+      } else {
+        console.log('Sidepanel opened successfully:', response)
+      }
+      
       // Reset the flag after a short delay to allow the action to complete
       setTimeout(() => {
         isOpening = false

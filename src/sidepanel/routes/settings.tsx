@@ -120,16 +120,6 @@ export const Settings = () => {
                     }}
                     className="api-key-field"
                   />
-                  <button 
-                    onClick={handleSaveApiKey}
-                    disabled={saveStatus === 'saving'}
-                    className={`save-btn ${saveStatus}`}
-                  >
-                    {saveStatus === 'saving' && '⏳'}
-                    {saveStatus === 'saved' && '✅'}
-                    {saveStatus === 'error' && '❌'}
-                    {saveStatus === 'idle' && '💾'}
-                  </button>
                    {savedApiKey && (
                      <>
                        <button onClick={handleCopyApiKey} className="copy-btn" title="Copy API Key">
@@ -147,6 +137,18 @@ export const Settings = () => {
                          </svg>
                        </button>
                      </>
+                   )}
+                   {!savedApiKey && (
+                     <button 
+                       onClick={handleSaveApiKey}
+                       disabled={saveStatus === 'saving' || !apiKey.trim()}
+                       className={`save-btn ${saveStatus}`}
+                     >
+                       {saveStatus === 'saving' && '⏳'}
+                       {saveStatus === 'saved' && '✅'}
+                       {saveStatus === 'error' && '❌'}
+                       {saveStatus === 'idle' && '💾'}
+                     </button>
                    )}
                 </div>
               </div>
