@@ -11,8 +11,9 @@ import {
   useUser
 } from '@clerk/chrome-extension'
 import { AIInterviewService, type InterviewContext } from '../services/aiInterviewService'
-// import { markdownRenderer } from '../services/markdownRenderer'
 import duckIconUrl from "data-base64:~assets/duck_128.png"
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism'
 
 declare global {
   interface Window {
@@ -127,7 +128,9 @@ const DuckCodeModalContent = () => {
   const [dragStartPosition, setDragStartPosition] = useState<Position>({ x: 0, y: 0 })
   const [aiService, setAiService] = useState<AIInterviewService | null>(null)
   const [isRecording, setIsRecording] = useState(false)
-  const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
+  const [recordingShortcut, setRecordingShortcut] = useState(
+    navigator.platform.toLowerCase().includes('mac') ? 'cmd+y' : 'ctrl+shift+r'
+  )
   const [keysPressed, setKeysPressed] = useState<Set<string>>(new Set())
   const keysPressedRef = useRef<Set<string>>(new Set())
   const [isSpeaking, setIsSpeaking] = useState(false)
@@ -150,8 +153,17 @@ const DuckCodeModalContent = () => {
   // Load recording shortcut and text mode from storage
   useEffect(() => {
     chrome.storage.sync.get(['recordingShortcut', 'textMode'], (result) => {
-      setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
+      // Use Command+Y as default on macOS, Ctrl+Shift+R on other platforms
+      const defaultShortcut = navigator.platform.toLowerCase().includes('mac') ? 'cmd+y' : 'ctrl+shift+r'
+      const shortcut = result.recordingShortcut || defaultShortcut
+      
+      setRecordingShortcut(shortcut)
       setTextMode(result.textMode || false)
+      
+      // If no shortcut was previously saved, save the default
+      if (!result.recordingShortcut) {
+        chrome.storage.sync.set({ recordingShortcut: shortcut })
+      }
     })
   }, [])
 
@@ -176,64 +188,6 @@ const DuckCodeModalContent = () => {
     setTimeout(initializeDuckPosition, 100)
   }, [])
 
-  // Add copy buttons to speech bubble code blocks when speechBubble content changes
-  useEffect(() => {
-    if (speechBubble && !isStreaming) {
-      // Small delay to ensure DOM is updated after markdown rendering
-      setTimeout(() => {
-        const speechBubbleElement = document.querySelector('.speech-bubble-content')
-        if (speechBubbleElement) {
-          addCopyButtonsToCodeBlocks(speechBubbleElement as HTMLElement)
-        }
-      }, 100)
-    }
-  }, [speechBubble, isStreaming])
-
-  // Helper function to add copy buttons to code blocks
-  const addCopyButtonsToCodeBlocks = (container: HTMLElement): void => {
-    const codeBlocks = container.querySelectorAll('pre.code-block')
-    
-    codeBlocks.forEach((pre) => {
-      // Skip if copy button already exists
-      if (pre.querySelector('.copy-btn')) return
-
-      const copyBtn = document.createElement('button')
-      copyBtn.className = 'copy-btn'
-      copyBtn.textContent = 'Copy'
-      copyBtn.setAttribute('aria-label', 'Copy code to clipboard')
-      
-      copyBtn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        
-        const code = pre.querySelector('code')
-        if (!code) return
-
-        try {
-          // Get the text content, preserving line breaks
-          const codeText = code.textContent || ''
-          await navigator.clipboard.writeText(codeText)
-          
-          copyBtn.textContent = 'Copied!'
-          copyBtn.classList.add('copied')
-          
-          setTimeout(() => {
-            copyBtn.textContent = 'Copy'
-            copyBtn.classList.remove('copied')
-          }, 2000)
-        } catch (err) {
-          console.error('Failed to copy code:', err)
-          copyBtn.textContent = 'Failed'
-          setTimeout(() => {
-            copyBtn.textContent = 'Copy'
-          }, 2000)
-        }
-      })
-
-      // Position the button
-      pre.style.position = 'relative'
-      pre.appendChild(copyBtn)
-    })
-  }
 
   // Helper function to clean HTML entities
   const cleanHtmlEntities = (text: string): string => {
@@ -250,39 +204,152 @@ const DuckCodeModalContent = () => {
 
 
 
-  // Helper function to render markdown and add copy buttons
-  const renderMarkdownContent = (text: string): string => {
-    if (!text) return ''
-    
-    try {
-      // Simple markdown parsing for now to avoid dependency issues
-      // Convert code blocks
-      let processed = text.replace(/```(\w+)?\s*\n([\s\S]*?)\n```/g, (match, lang, code) => {
-        const language = lang || 'text'
-        return `<pre class="code-block language-${language}"><code class="language-${language}">${escapeHtml(code.trim())}</code></pre>`
-      })
-      
-      // Convert inline code
-      processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>')
-      
-      // Convert line breaks
-      processed = processed.replace(/\n/g, '<br>')
-      
-      return processed
-    } catch (error) {
-      console.error('Markdown rendering failed:', error)
-      // Fallback to escaped text if markdown rendering fails
-      const escaped = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
-        .replace(/\n/g, '<br>')
-      
-      return escaped
+  // Simple Markdown component using react-syntax-highlighter for code blocks
+  const MarkdownContent = ({ content }: { content: string }) => {
+    if (!content) return null
+
+    const processMarkdown = (text: string) => {
+      const parts: JSX.Element[] = []
+      let key = 0
+
+      // Split by code blocks first
+      const codeBlockRegex = /```(\w+)?\s*\n([\s\S]*?)\n```/g
+      let lastIndex = 0
+      let match
+
+      while ((match = codeBlockRegex.exec(text)) !== null) {
+        // Add text before code block
+        if (match.index > lastIndex) {
+          const beforeText = text.slice(lastIndex, match.index)
+          parts.push(...processTextContent(beforeText, key))
+          key += 100
+        }
+
+        // Add code block
+        const language = match[1] || 'text'
+        const code = match[2].trim()
+        parts.push(
+          <SyntaxHighlighter
+            key={key++}
+            language={language}
+            style={vscDarkPlus}
+            customStyle={{
+              margin: '12px 0',
+              borderRadius: '6px',
+              fontSize: '13px'
+            }}
+          >
+            {code}
+          </SyntaxHighlighter>
+        )
+
+        lastIndex = match.index + match[0].length
+      }
+
+      // Add remaining text
+      if (lastIndex < text.length) {
+        const remainingText = text.slice(lastIndex)
+        parts.push(...processTextContent(remainingText, key))
+      }
+
+      return parts
     }
+
+    const processTextContent = (text: string, startKey: number) => {
+      const elements: JSX.Element[] = []
+      let key = startKey
+
+      // Split by lines and process each
+      const lines = text.split('\n')
+      lines.forEach((line, index) => {
+        // Handle headers
+        if (line.startsWith('### ')) {
+          elements.push(
+            <h3 key={key++} style={{ color: '#ffffff', fontSize: '1.2em', fontWeight: 'bold', margin: '12px 0 8px 0' }}>
+              {processInlineFormatting(line.slice(4))}
+            </h3>
+          )
+        } else if (line.startsWith('## ')) {
+          elements.push(
+            <h2 key={key++} style={{ color: '#ffffff', fontSize: '1.3em', fontWeight: 'bold', margin: '14px 0 10px 0', borderBottom: '1px solid #cccccc', paddingBottom: '2px' }}>
+              {processInlineFormatting(line.slice(3))}
+            </h2>
+          )
+        } else if (line.startsWith('# ')) {
+          elements.push(
+            <h1 key={key++} style={{ color: '#ffffff', fontSize: '1.4em', fontWeight: 'bold', margin: '16px 0 12px 0', borderBottom: '2px solid #ffffff', paddingBottom: '4px' }}>
+              {processInlineFormatting(line.slice(2))}
+            </h1>
+          )
+        } else if (line.trim()) {
+          elements.push(
+            <p key={key++} style={{ margin: '8px 0', lineHeight: '1.5' }}>
+              {processInlineFormatting(line)}
+            </p>
+          )
+        } else if (index < lines.length - 1) {
+          elements.push(<br key={key++} />)
+        }
+      })
+
+      return elements
+    }
+
+    const processInlineFormatting = (text: string) => {
+      const parts: (string | JSX.Element)[] = []
+      let key = 0
+
+      // Process bold, italic, and inline code
+      let remaining = text
+      
+      // Replace **bold**
+      remaining = remaining.replace(/\*\*(.+?)\*\*/g, (match, content) => {
+        const placeholder = `__BOLD_${key}__`
+        parts.push(<strong key={`bold-${key++}`} style={{ color: '#ffffff', fontWeight: 'bold' }}>{content}</strong>)
+        return placeholder
+      })
+
+      // Replace *italic*
+      remaining = remaining.replace(/\*(.+?)\*/g, (match, content) => {
+        const placeholder = `__ITALIC_${key}__`
+        parts.push(<em key={`italic-${key++}`} style={{ color: '#cccccc', fontStyle: 'italic', fontWeight: 500 }}>{content}</em>)
+        return placeholder
+      })
+
+      // Replace `inline code`
+      remaining = remaining.replace(/`([^`]+)`/g, (match, content) => {
+        const placeholder = `__CODE_${key}__`
+        parts.push(<code key={`code-${key++}`} className="inline-code">{content}</code>)
+        return placeholder
+      })
+
+      // Split by placeholders and reconstruct
+      const finalParts: (string | JSX.Element)[] = []
+      const placeholderRegex = /__(?:BOLD|ITALIC|CODE)_(\d+)__/g
+      let lastIndex = 0
+      let match
+
+      while ((match = placeholderRegex.exec(remaining)) !== null) {
+        if (match.index > lastIndex) {
+          finalParts.push(remaining.slice(lastIndex, match.index))
+        }
+        const partIndex = parseInt(match[1])
+        if (parts[partIndex]) {
+          finalParts.push(parts[partIndex])
+        }
+        lastIndex = match.index + match[0].length
+      }
+
+      if (lastIndex < remaining.length) {
+        finalParts.push(remaining.slice(lastIndex))
+      }
+
+      return finalParts.length > 0 ? finalParts : text
+    }
+
+    return <div>{processMarkdown(content)}</div>
   }
+
 
   // Helper function to escape HTML
   const escapeHtml = (text: string): string => {
@@ -1048,30 +1115,31 @@ ${modeInstructions}`)
     return true
   }
 
+  // Enhanced keyboard shortcut detection that handles Command+Y reliably
+  const isShortcutMatch = (e: KeyboardEvent) => {
+    const shortcut = parseShortcut(recordingShortcut)
+    
+    // Check each modifier and key match
+    const modifiersMatch = 
+      (shortcut.ctrl === e.ctrlKey) &&
+      (shortcut.shift === e.shiftKey) &&
+      (shortcut.alt === e.altKey) &&
+      (shortcut.meta === e.metaKey)
+    
+    const keyMatch = shortcut.key === e.key.toLowerCase()
+    
+    return modifiersMatch && keyMatch
+  }
+
   // Global keyboard event handlers
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase()
-      const current = new Set(keysPressedRef.current)
-
-      // Add modifier keys
-      if (e.ctrlKey) current.add('control')
-      if (e.shiftKey) current.add('shift')
-      if (e.altKey) current.add('alt')
-      if (e.metaKey) current.add('meta')
-
-      // Add the main key
-      if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-        current.add(key)
-      }
-
-      keysPressedRef.current = current
-      setKeysPressed(new Set(current))
-
-      // Check if shortcut is pressed
-      if (isShortcutPressed(current)) {
+      // Direct shortcut matching for more reliability
+      if (isShortcutMatch(e)) {
         e.preventDefault()
         e.stopPropagation()
+        
+        console.log('Shortcut detected:', recordingShortcut)
 
         // Auto-start interview if it hasn't started yet
         if (!interviewMode) {
@@ -1096,7 +1164,26 @@ ${modeInstructions}`)
             }
           }
         }
+        return
       }
+
+      // Keep the existing key tracking for display purposes
+      const key = e.key.toLowerCase()
+      const current = new Set(keysPressedRef.current)
+
+      // Add modifier keys
+      if (e.ctrlKey) current.add('control')
+      if (e.shiftKey) current.add('shift')
+      if (e.altKey) current.add('alt')
+      if (e.metaKey) current.add('meta')
+
+      // Add the main key
+      if (!['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+        current.add(key)
+      }
+
+      keysPressedRef.current = current
+      setKeysPressed(new Set(current))
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -1153,14 +1240,20 @@ ${modeInstructions}`)
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('keyup', handleKeyUp)
+    // Add event listeners to both document and window for better coverage
+    // Use capture phase to catch events before they can be prevented
+    document.addEventListener('keydown', handleKeyDown, true)
+    document.addEventListener('keyup', handleKeyUp, true)
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('keyup', handleKeyUp, true)
     window.addEventListener('blur', handleBlurOrHide)
     document.addEventListener('visibilitychange', handleBlurOrHide)
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('keyup', handleKeyUp)
+      document.removeEventListener('keydown', handleKeyDown, true)
+      document.removeEventListener('keyup', handleKeyUp, true)
+      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('keyup', handleKeyUp, true)
       window.removeEventListener('blur', handleBlurOrHide)
       document.removeEventListener('visibilitychange', handleBlurOrHide)
     }
@@ -1186,7 +1279,8 @@ ${modeInstructions}`)
   useEffect(() => {
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes.recordingShortcut) {
-        setRecordingShortcut(changes.recordingShortcut.newValue || 'ctrl+shift+r')
+        const defaultShortcut = navigator.platform.toLowerCase().includes('mac') ? 'cmd+y' : 'ctrl+shift+r'
+        setRecordingShortcut(changes.recordingShortcut.newValue || defaultShortcut)
       }
       if (changes.textMode) {
         setTextMode(changes.textMode.newValue || false)
@@ -1614,7 +1708,6 @@ ${modeInstructions}`)
               boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
               border: '1px solid #e1e5e9',
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-              position: 'relative',
               transform: 'translateZ(0)',
             }}
             onClick={(e) => e.stopPropagation()}
@@ -1666,9 +1759,11 @@ ${modeInstructions}`)
                 position: 'relative',
               }}
             >
-              <div dangerouslySetInnerHTML={{ 
-                __html: speechBubble ? renderMarkdownContent(speechBubble) : (isStreaming ? 'Thinking...' : '') 
-              }} />
+              {speechBubble ? (
+                <MarkdownContent content={speechBubble} />
+              ) : (
+                isStreaming ? <div>Thinking...</div> : null
+              )}
               {isStreaming && speechBubble && <span 
                 className="cursor"
                 style={{
@@ -2106,7 +2201,7 @@ ${modeInstructions}`)
                 </button>
               </div>
               <div className="transcript-content">
-                <div dangerouslySetInnerHTML={{ __html: renderMarkdownContent(transcript) }} />
+                <MarkdownContent content={transcript} />
               </div>
             </div>
           )}

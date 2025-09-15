@@ -188,3 +188,101 @@ code:not([class*="language-"]) {
 .code-block code::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3) !important;
 }
+
+/* Speech bubble and markdown content styling */
+.speech-bubble-content {
+  max-height: 400px !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05) !important;
+}
+
+.speech-bubble-content::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+.speech-bubble-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-radius: 4px !important;
+}
+
+.speech-bubble-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-radius: 4px !important;
+}
+
+.speech-bubble-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Markdown heading styles - Simple and readable */
+.speech-bubble-content h1 {
+  font-size: 1.4em !important;
+  font-weight: bold !important;
+  color: #ffffff !important;
+  margin: 16px 0 12px 0 !important;
+  border-bottom: 2px solid #ffffff !important;
+  padding-bottom: 4px !important;
+}
+
+.speech-bubble-content h2 {
+  font-size: 1.3em !important;
+  font-weight: bold !important;
+  color: #ffffff !important;
+  margin: 14px 0 10px 0 !important;
+  border-bottom: 1px solid #cccccc !important;
+  padding-bottom: 2px !important;
+}
+
+.speech-bubble-content h3 {
+  font-size: 1.2em !important;
+  font-weight: bold !important;
+  color: #ffffff !important;
+  margin: 12px 0 8px 0 !important;
+}
+
+/* Bold and italic text - Simple and readable */
+.speech-bubble-content strong {
+  font-weight: bold !important;
+  color: #ffffff !important;
+}
+
+.speech-bubble-content em {
+  font-style: italic !important;
+  color: #cccccc !important;
+  font-weight: 500 !important;
+}
+
+/* Inline code in speech bubble */
+.speech-bubble-content .inline-code {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #f92672 !important;
+  padding: 2px 4px !important;
+  border-radius: 3px !important;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace !important;
+  font-size: 0.85em !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Code blocks in speech bubble */
+.speech-bubble-content .code-block {
+  margin: 12px 0 !important;
+  border-radius: 6px !important;
+  overflow: hidden !important;
+}
+
+.speech-bubble-content .code-block code {
+  max-height: 200px !important;
+  overflow-y: auto !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .speech-bubble-content {
+    max-height: 300px !important;
+  }
+  
+  .speech-bubble-content .code-block code {
+    max-height: 150px !important;
+  }
+}
