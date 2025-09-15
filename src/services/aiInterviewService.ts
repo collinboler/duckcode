@@ -70,6 +70,12 @@ ional interviewer. Keep responses conversational and encouraging.
         - WRONG: """python or '''python
         - RIGHT: \\\`\\\`\\\`python
         
+        CRITICAL: ALWAYS respond in the context of the specific programming language the user is working with:
+        - Detect the programming language from their code syntax or context
+        - Provide solutions and examples ONLY in that same language
+        - Match their coding style and language-specific conventions
+        - Never suggest solutions in a different language than what they're using
+        
         Provide detailed, well-formatted responses with code examples when helpful.`
       } else {
         return `You are a mock coding interviewer helping someone practice technical interviews. 
@@ -110,7 +116,17 @@ Guidelines:
 - Help debug code and suggest improvements
 - ALWAYS format code properly with markdown
 - Include code examples when helpful
-- Use proper indentation in code blocks`
+- Use proper indentation in code blocks
+
+CRITICAL: ALWAYS respond in the context of the specific programming language the user is working with. When you see their code:
+- Detect the programming language from their code syntax, file context, or problem setup
+- Provide solutions, suggestions, and examples ONLY in that same language
+- If they're writing Python, respond with Python code and Python-specific advice
+- If they're writing Java, respond with Java code and Java-specific advice
+- If they're writing JavaScript, respond with JavaScript code and JavaScript-specific advice
+- If they're writing C++, respond with C++ code and C++-specific advice
+- Match their coding style, naming conventions, and language idioms
+- Never mix languages or suggest solutions in a different language than what they're using`
     } else {
       return `You are a coding interviewer for: ${problemTitle}
 
@@ -197,7 +213,7 @@ Guidelines:
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages,
-        max_tokens: 500,
+        max_tokens: 2000,
         temperature: 0.7
       })
     })
@@ -270,7 +286,7 @@ Guidelines:
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages,
-        max_tokens: 500,
+        max_tokens: 2000,
         temperature: 0.7,
         stream: true
       })

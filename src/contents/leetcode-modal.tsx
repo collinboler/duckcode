@@ -142,6 +142,8 @@ const DuckCodeModalContent = () => {
   const [showCompactInput, setShowCompactInput] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
+  const [lastShortcutTime, setLastShortcutTime] = useState(0)
+  const [pendingShortcutAction, setPendingShortcutAction] = useState(false)
   const [showDebugTab, setShowDebugTab] = useState(false)
   const [lastSystemPrompt, setLastSystemPrompt] = useState('')
   const [lastUserMessage, setLastUserMessage] = useState('')
@@ -265,25 +267,25 @@ const DuckCodeModalContent = () => {
         // Handle headers
         if (line.startsWith('### ')) {
           elements.push(
-            <h3 key={key++} style={{ color: '#ffffff', fontSize: '1.2em', fontWeight: 'bold', margin: '12px 0 8px 0' }}>
+            <h3 key={key++} style={{ color: '#333333', fontSize: '1.2em', fontWeight: 'bold', margin: '12px 0 8px 0' }}>
               {processInlineFormatting(line.slice(4))}
             </h3>
           )
         } else if (line.startsWith('## ')) {
           elements.push(
-            <h2 key={key++} style={{ color: '#ffffff', fontSize: '1.3em', fontWeight: 'bold', margin: '14px 0 10px 0', borderBottom: '1px solid #cccccc', paddingBottom: '2px' }}>
+            <h2 key={key++} style={{ color: '#333333', fontSize: '1.3em', fontWeight: 'bold', margin: '14px 0 10px 0', borderBottom: '1px solid #cccccc', paddingBottom: '2px' }}>
               {processInlineFormatting(line.slice(3))}
             </h2>
           )
         } else if (line.startsWith('# ')) {
           elements.push(
-            <h1 key={key++} style={{ color: '#ffffff', fontSize: '1.4em', fontWeight: 'bold', margin: '16px 0 12px 0', borderBottom: '2px solid #ffffff', paddingBottom: '4px' }}>
+            <h1 key={key++} style={{ color: '#333333', fontSize: '1.4em', fontWeight: 'bold', margin: '16px 0 12px 0', borderBottom: '2px solid #333333', paddingBottom: '4px' }}>
               {processInlineFormatting(line.slice(2))}
             </h1>
           )
         } else if (line.trim()) {
           elements.push(
-            <p key={key++} style={{ margin: '8px 0', lineHeight: '1.5' }}>
+            <p key={key++} style={{ margin: '8px 0', lineHeight: '1.5', color: '#333333' }}>
               {processInlineFormatting(line)}
             </p>
           )
@@ -305,14 +307,14 @@ const DuckCodeModalContent = () => {
       // Replace **bold**
       remaining = remaining.replace(/\*\*(.+?)\*\*/g, (match, content) => {
         const placeholder = `__BOLD_${key}__`
-        parts.push(<strong key={`bold-${key++}`} style={{ color: '#ffffff', fontWeight: 'bold' }}>{content}</strong>)
+        parts.push(<strong key={`bold-${key++}`} style={{ color: '#333333', fontWeight: 'bold' }}>{content}</strong>)
         return placeholder
       })
 
       // Replace *italic*
       remaining = remaining.replace(/\*(.+?)\*/g, (match, content) => {
         const placeholder = `__ITALIC_${key}__`
-        parts.push(<em key={`italic-${key++}`} style={{ color: '#cccccc', fontStyle: 'italic', fontWeight: 500 }}>{content}</em>)
+        parts.push(<em key={`italic-${key++}`} style={{ color: '#666666', fontStyle: 'italic', fontWeight: 500 }}>{content}</em>)
         return placeholder
       })
 
@@ -1128,6 +1130,18 @@ ${modeInstructions}`)
     
     const keyMatch = shortcut.key === e.key.toLowerCase()
     
+    // Add debugging
+    if (modifiersMatch && keyMatch) {
+      console.log('Shortcut match found:', {
+        shortcut: recordingShortcut,
+        key: e.key,
+        ctrl: e.ctrlKey,
+        meta: e.metaKey,
+        alt: e.altKey,
+        shift: e.shiftKey
+      })
+    }
+    
     return modifiersMatch && keyMatch
   }
 
@@ -1136,31 +1150,42 @@ ${modeInstructions}`)
     const handleKeyDown = (e: KeyboardEvent) => {
       // Direct shortcut matching for more reliability
       if (isShortcutMatch(e)) {
+        // Prevent double triggering with throttling
+        const now = Date.now()
+        if (now - lastShortcutTime < 500) { // 500ms throttle
+          console.log('Shortcut throttled, ignoring duplicate')
+          return
+        }
+        setLastShortcutTime(now)
+        
         e.preventDefault()
         e.stopPropagation()
         
         console.log('Shortcut detected:', recordingShortcut)
 
-        // Auto-start interview if it hasn't started yet
+        // Auto-start interview if it hasn't started yet AND immediately show input
         if (!interviewMode) {
-          // Initialize interview (async). Recording will start once connected
+          // Initialize interview (async). Input will show once connected
           startInterview()
-        }
-
-        // If already connected, handle based on mode
-        if (isConnected) {
-          if (textMode) {
-            if (isMinimized) {
-              // Show compact input when minimized
-              setShowCompactInput(true)
+          
+          // Set flag to show input when connection is ready
+          setPendingShortcutAction(true)
+        } else {
+          // If interview is already running, handle immediately
+          if (isConnected) {
+            if (textMode) {
+              if (isMinimized) {
+                // Show compact input when minimized
+                setShowCompactInput(true)
+              } else {
+                // Show text input in modal
+                setIsTextInputVisible(true)
+              }
             } else {
-              // Show text input in modal
-              setIsTextInputVisible(true)
-            }
-          } else {
-            // Start recording for voice mode
-            if (!isRecording) {
-              startRecording()
+              // Start recording for voice mode
+              if (!isRecording) {
+                startRecording()
+              }
             }
           }
         }
@@ -1257,12 +1282,13 @@ ${modeInstructions}`)
       window.removeEventListener('blur', handleBlurOrHide)
       document.removeEventListener('visibilitychange', handleBlurOrHide)
     }
-  }, [isRecording, isConnected, interviewMode, recordingShortcut])
+  }, [isRecording, isConnected, interviewMode, recordingShortcut, lastShortcutTime])
 
-  // If the shortcut is being held down while we finish connecting,
-  // begin recording or show text input as soon as the connection is ready.
+  // If there's a pending shortcut action, execute it when connected
   useEffect(() => {
-    if (isConnected && isShortcutPressed(keysPressedRef.current)) {
+    if (isConnected && pendingShortcutAction) {
+      console.log('Executing pending shortcut action')
+      
       if (textMode) {
         if (isMinimized && !showCompactInput) {
           setShowCompactInput(true)
@@ -1272,8 +1298,11 @@ ${modeInstructions}`)
       } else if (!isRecording) {
         startRecording()
       }
+      
+      // Clear the pending action
+      setPendingShortcutAction(false)
     }
-  }, [isConnected, isRecording, recordingShortcut, textMode, isTextInputVisible, isMinimized, showCompactInput])
+  }, [isConnected, pendingShortcutAction, textMode, isTextInputVisible, isMinimized, showCompactInput, isRecording])
 
   // Listen for shortcut and text mode changes from settings
   useEffect(() => {

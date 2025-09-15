@@ -219,16 +219,16 @@ code:not([class*="language-"]) {
 .speech-bubble-content h1 {
   font-size: 1.4em !important;
   font-weight: bold !important;
-  color: #ffffff !important;
+  color: #333333 !important;
   margin: 16px 0 12px 0 !important;
-  border-bottom: 2px solid #ffffff !important;
+  border-bottom: 2px solid #333333 !important;
   padding-bottom: 4px !important;
 }
 
 .speech-bubble-content h2 {
   font-size: 1.3em !important;
   font-weight: bold !important;
-  color: #ffffff !important;
+  color: #333333 !important;
   margin: 14px 0 10px 0 !important;
   border-bottom: 1px solid #cccccc !important;
   padding-bottom: 2px !important;
@@ -237,14 +237,14 @@ code:not([class*="language-"]) {
 .speech-bubble-content h3 {
   font-size: 1.2em !important;
   font-weight: bold !important;
-  color: #ffffff !important;
+  color: #333333 !important;
   margin: 12px 0 8px 0 !important;
 }
 
 /* Bold and italic text - Simple and readable */
 .speech-bubble-content strong {
   font-weight: bold !important;
-  color: #ffffff !important;
+  color: #333333 !important;
 }
 
 .speech-bubble-content em {
