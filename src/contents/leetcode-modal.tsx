@@ -3,7 +3,7 @@ import prismCss from "data-text:~styles/prism-theme.css"
 import type { PlasmoCSConfig } from "plasmo"
 import React, { useState, useEffect, useRef } from "react"
 // Removed Clerk authentication - now open source and auth-free
-import { AIInterviewService, type InterviewContext } from '../services/aiInterviewService'
+import { AIInterviewService, type InterviewContext, type PersonalitySettings } from '../services/aiInterviewService'
 import duckIconUrl from "data-base64:~assets/duck_128.png"
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism'
@@ -133,6 +133,11 @@ const DuckCodeModalContent = () => {
   const [isStreaming, setIsStreaming] = useState(false)
   const [lastShortcutTime, setLastShortcutTime] = useState(0)
   const [pendingShortcutAction, setPendingShortcutAction] = useState(false)
+  const [personalitySettings, setPersonalitySettings] = useState<PersonalitySettings>({
+    mode: 'interviewer',
+    sageRevelation: 30
+  })
+  const [sidebarWidth, setSidebarWidth] = useState(0)
   const [showDebugTab, setShowDebugTab] = useState(false)
   const [lastSystemPrompt, setLastSystemPrompt] = useState('')
   const [lastUserMessage, setLastUserMessage] = useState('')
@@ -141,28 +146,68 @@ const DuckCodeModalContent = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
-  // Load recording shortcut and text mode from storage
+  // Load settings from storage including position
   useEffect(() => {
-    chrome.storage.sync.get(['recordingShortcut', 'textMode'], (result) => {
+    chrome.storage.sync.get(['recordingShortcut', 'textMode', 'personalityMode', 'sageRevelation'], (result) => {
       // Use Command+Y as default on macOS, Ctrl+Shift+R on other platforms
       const defaultShortcut = navigator.platform.toLowerCase().includes('mac') ? 'cmd+y' : 'ctrl+shift+r'
       const shortcut = result.recordingShortcut || defaultShortcut
       
       setRecordingShortcut(shortcut)
       setTextMode(result.textMode || false)
+      setPersonalitySettings({
+        mode: result.personalityMode || 'interviewer',
+        sageRevelation: result.sageRevelation || 30
+      })
       
       // If no shortcut was previously saved, save the default
       if (!result.recordingShortcut) {
         chrome.storage.sync.set({ recordingShortcut: shortcut })
       }
     })
+
+    // Load saved duck position from localStorage
+    const savedPosition = localStorage.getItem('duckPosition')
+    if (savedPosition) {
+      try {
+        const position = JSON.parse(savedPosition)
+        setDuckPosition(position)
+      } catch (error) {
+        console.error('Failed to parse saved duck position:', error)
+      }
+    }
+
+    // Monitor sidebar width changes
+    const detectSidebarWidth = () => {
+      // Look for Chrome extension sidepanel
+      const sidepanel = document.querySelector('iframe[title*="DuckCode"]') || 
+                      document.querySelector('[data-testid="side-panel"]') ||
+                      document.querySelector('.chrome-extension-sidebar')
+      
+      if (sidepanel) {
+        const rect = sidepanel.getBoundingClientRect()
+        setSidebarWidth(rect.width)
+      } else {
+        setSidebarWidth(0)
+      }
+    }
+
+    // Check sidebar on load and periodically
+    detectSidebarWidth()
+    const sidebarInterval = setInterval(detectSidebarWidth, 1000)
+
+    return () => clearInterval(sidebarInterval)
   }, [])
 
   // Clear conversation history when text mode changes to ensure new formatting rules apply
   useEffect(() => {
     if (aiService) {
+      try {
       console.log('Text mode changed, clearing conversation history to apply new formatting rules')
-      aiService.clearConversationHistory()
+        aiService.clearHistory()
+      } catch (error) {
+        console.error('Error clearing AI service history:', error)
+      }
     }
   }, [textMode, aiService])
 
@@ -891,7 +936,7 @@ ${modeInstructions}`)
       console.log('Processing user input:', userText)
       console.log('Current context:', context)
 
-      const result = await aiService.getInterviewResponse(userText, context, false) // Voice mode - no pretty code
+      const result = await aiService.getInterviewResponse(userText, context, false, personalitySettings) // Voice mode - no pretty code
 
       console.log('Received AI result:', result)
 
@@ -918,8 +963,22 @@ ${modeInstructions}`)
 
     } catch (error) {
       console.error('Error processing audio:', error)
-      setTranscript(prev => prev + `\n\nError: ${error.message}`)
+      
+      // Provide specific error messages based on the error type
+      let errorMessage = 'Audio processing failed. '
+      if (error.message.includes('Transcription API request failed')) {
+        errorMessage += 'Speech-to-text service is unavailable. Please try again.'
+      } else if (error.message.includes('Speech synthesis API request failed')) {
+        errorMessage += 'Text-to-speech service is unavailable. Please try again.'
+      } else if (error.message.includes('network') || error.message.includes('timeout')) {
+        errorMessage += 'Network connection issue. Please check your internet and try again.'
+      } else {
+        errorMessage += `${error.message}`
+      }
+      
+      setTranscript(prev => prev + `\n\n❌ ${errorMessage}`)
       setConnectionStatus('connected') // Reset on error
+      setIsSpeaking(false) // Ensure speaking state is reset
     }
   }
 
@@ -959,7 +1018,7 @@ ${modeInstructions}`)
         const result = await aiService.getStreamingInterviewResponse(userText, context, (chunk) => {
           setStreamingText(prev => prev + chunk)
           setSpeechBubble(prev => (prev || '') + chunk)
-        }, true) // Text mode - enable pretty code formatting
+        }, true, personalitySettings) // Text mode - enable pretty code formatting
 
         console.log('Received streaming AI result:', result)
 
@@ -976,7 +1035,7 @@ ${modeInstructions}`)
         // Speech bubble stays up until manually dismissed
       } else {
         // Regular non-streaming response for modal mode
-        const result = await aiService.getInterviewResponse(userText, context, textMode) // Pass textMode for pretty code formatting
+        const result = await aiService.getInterviewResponse(userText, context, textMode, personalitySettings) // Pass textMode for pretty code formatting
 
         console.log('Received AI result:', result)
 
@@ -1300,6 +1359,12 @@ ${modeInstructions}`)
       if (changes.textMode) {
         setTextMode(changes.textMode.newValue || false)
       }
+      if (changes.personalityMode || changes.sageRevelation) {
+        setPersonalitySettings(prev => ({
+          mode: changes.personalityMode?.newValue || prev.mode,
+          sageRevelation: changes.sageRevelation?.newValue ?? prev.sageRevelation
+        }))
+      }
     }
 
     chrome.storage.onChanged.addListener(handleStorageChange)
@@ -1479,7 +1544,11 @@ ${modeInstructions}`)
     setTimeout(() => setIsSnapping(false), 300)
 
     console.log('Snapping duck from', duckPosition, 'to', { x: newX, y: newY })
-    setDuckPosition({ x: newX, y: newY })
+    const finalPosition = { x: newX, y: newY }
+    setDuckPosition(finalPosition)
+    
+    // Save position to localStorage
+    localStorage.setItem('duckPosition', JSON.stringify(finalPosition))
   }
 
   // Calculate transform origin based on duck position relative to modal
@@ -1659,7 +1728,7 @@ ${modeInstructions}`)
     return paddedLines.join('\n')
   }
 
-  if (!isVisible) return null
+  // Always visible - no need for visibility check since this is a static widget
 
   // Helper function to calculate smart planet positions based on duck location
   const getPlanetPositions = () => {
@@ -1735,9 +1804,10 @@ ${modeInstructions}`)
               position: 'fixed',
               left: (() => {
                 const screenWidth = window.innerWidth;
-                const bubbleWidth = Math.min(450, screenWidth * 0.4); // Updated to match CSS max-width
+                const availableWidth = screenWidth - sidebarWidth; // Account for sidebar
+                const bubbleWidth = Math.min(450, availableWidth * 0.4);
                 
-                const isLeft = duckPosition.x < screenWidth / 2;
+                const isLeft = duckPosition.x < availableWidth / 2;
                 
                 let leftPos;
                 if (isLeft) {
@@ -1748,8 +1818,10 @@ ${modeInstructions}`)
                   leftPos = duckPosition.x - bubbleWidth - 15;
                 }
                 
-                // Ensure bubble stays within screen bounds
-                leftPos = Math.max(10, Math.min(leftPos, screenWidth - bubbleWidth - 10));
+                // Ensure bubble stays within available screen bounds (excluding sidebar)
+                const minLeft = sidebarWidth + 10; // Account for sidebar
+                const maxLeft = screenWidth - bubbleWidth - 10;
+                leftPos = Math.max(minLeft, Math.min(leftPos, maxLeft));
                 
                 return leftPos;
               })() + 'px',
@@ -1881,17 +1953,26 @@ ${modeInstructions}`)
               position: 'fixed',
               left: (() => {
                 const screenWidth = window.innerWidth;
-                const inputWidth = Math.min(320, screenWidth * 0.4);
+                const availableWidth = screenWidth - sidebarWidth; // Account for sidebar
+                const inputWidth = Math.min(320, availableWidth * 0.4);
                 
-                const isLeft = duckPosition.x < screenWidth / 2;
+                const isLeft = duckPosition.x < availableWidth / 2;
                 
+                let leftPos;
                 if (isLeft) {
                   // Duck on left side - input goes right, closer to duck
-                  return duckPosition.x + 75;
+                  leftPos = duckPosition.x + 75;
                 } else {
                   // Duck on right side - input goes left, closer to duck
-                  return duckPosition.x - inputWidth - 15;
+                  leftPos = duckPosition.x - inputWidth - 15;
                 }
+                
+                // Ensure input stays within available screen bounds (excluding sidebar)
+                const minLeft = sidebarWidth + 10; // Account for sidebar
+                const maxLeft = screenWidth - inputWidth - 10;
+                leftPos = Math.max(minLeft, Math.min(leftPos, maxLeft));
+                
+                return leftPos;
               })() + 'px',
               top: (() => {
                 // Start at same Y level as duck (centered)
@@ -2037,7 +2118,7 @@ ${modeInstructions}`)
             fontSize: '28px',
             cursor: isDuckDragging ? 'grabbing' : 'grab',
             boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15), 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 0 4px rgba(102, 126, 234, 0.3)',
-            zIndex: 9999,
+            zIndex: 10001, // Higher than speech bubble and text input
             transition: isDuckDragging ? 'none' : 'all 0.3s ease',
             userSelect: 'none',
             transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)',
@@ -2074,12 +2155,15 @@ ${modeInstructions}`)
               justifyContent: 'center',
               cursor: 'pointer',
               boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-              zIndex: 9998,
+              zIndex: 10000, // Same as speech bubble but below duck
               transition: 'all 0.3s ease',
               transform: 'scale(1)',
               opacity: 1
             }}
-            onClick={openSidepanelSettings}
+            onClick={(e) => {
+              e.stopPropagation() // Prevent event bubbling
+              openSidepanelSettings()
+            }}
             title="Settings"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2098,23 +2182,27 @@ ${modeInstructions}`)
               width: '50px',
               height: '50px',
               background: textMode 
-                ? 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' 
+                ? 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' // Green for text mode
                 : isRecording
                   ? 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)' // Red when recording
-                  : 'linear-gradient(135deg, #6c757d 0%, #495057 100%)', // Gray when not recording
+                  : 'linear-gradient(135deg, #28a745 0%, #20c997 100%)', // Green when not recording (same as text mode)
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
               boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-              zIndex: 9998,
+              zIndex: 10000, // Same as speech bubble but below duck
               transition: 'all 0.3s ease',
               transform: 'scale(1)',
               opacity: 1
             }}
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation() // Prevent event bubbling
               console.log('Chat/Speak planet clicked', { textMode, interviewMode, isConnected, isRecording })
+              
+              // Always close planet modals when action is triggered
+              setShowPlanetModals(false)
               
               // Auto-start interview if not started
               if (!interviewMode) {
@@ -2126,10 +2214,8 @@ ${modeInstructions}`)
                 if (isConnected) {
                   if (textMode) {
                     setShowCompactInput(!showCompactInput)
-                    setShowPlanetModals(false) // Close planet modals when chat opens
                     console.log('Toggling text input visibility')
                   } else {
-                    setShowPlanetModals(false) // Close planet modals when recording starts
                     if (isRecording) {
                       stopRecording()
                       console.log('Stopping recording')
@@ -2173,12 +2259,15 @@ ${modeInstructions}`)
               justifyContent: 'center',
               cursor: 'pointer',
               boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-              zIndex: 9998,
+              zIndex: 10000, // Same as speech bubble but below duck
               transition: 'all 0.3s ease',
               transform: 'scale(1)',
               opacity: 1
             }}
-            onClick={() => setShowPlanetModals(false)}
+            onClick={(e) => {
+              e.stopPropagation() // Prevent event bubbling
+              setShowPlanetModals(false)
+            }}
             title="Close"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2193,9 +2282,68 @@ ${modeInstructions}`)
   )
 }
 
+// Error boundary to prevent crashes from taking down the entire duck widget
+class DuckErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Duck widget error caught by boundary:', error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Fallback UI - still show a basic duck that can be clicked to refresh
+      return (
+        <div
+          style={{
+            position: 'fixed',
+            left: '20px',
+            top: '20px',
+            width: '60px',
+            height: '60px',
+            background: 'linear-gradient(135deg, #ffc107 0%, #ff9800 100%)',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '28px',
+            cursor: 'pointer',
+            boxShadow: '0 8px 25px rgba(0, 0, 0, 0.15)',
+            zIndex: 10001,
+            userSelect: 'none'
+          }}
+          onClick={() => {
+            this.setState({ hasError: false })
+            window.location.reload()
+          }}
+          title="Duck widget error - click to refresh"
+        >
+          🦆
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
 // Main component - no authentication wrapper needed
 const DuckCodeModal = () => {
-  return <DuckCodeModalContent />
+  return (
+    <DuckErrorBoundary>
+      <DuckCodeModalContent />
+    </DuckErrorBoundary>
+  )
 }
 
 export default DuckCodeModal

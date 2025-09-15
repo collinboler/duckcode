@@ -4,42 +4,26 @@ import { Link, useNavigate } from 'react-router'
 
 export const Settings = () => {
   const navigate = useNavigate()
-  const [darkMode, setDarkMode] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [savedApiKey, setSavedApiKey] = useState('')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [advancedExpanded, setAdvancedExpanded] = useState(false)
-  const [tokensUsed, setTokensUsed] = useState('--')
-  const [analysisCost, setAnalysisCost] = useState('$0.00')
-  const [sessionCost, setSessionCost] = useState('$0.00')
-  const [recordingShortcut, setRecordingShortcut] = useState('ctrl+shift+r')
-  const [isCapturingShortcut, setIsCapturingShortcut] = useState(false)
   const [textMode, setTextMode] = useState(false)
   const [gptModel, setGptModel] = useState('gpt-4')
+  const [personalityMode, setPersonalityMode] = useState<'sage' | 'interviewer'>('interviewer')
+  const [sageRevelation, setSageRevelation] = useState(30) // 0-100 scale
 
   // Load settings from storage
   useEffect(() => {
-    chrome.storage.sync.get(['darkMode', 'openaiApiKey', 'tokensUsed', 'analysisCost', 'sessionCost', 'recordingShortcut', 'textMode'], (result) => {
-      const isDarkMode = result.darkMode || false
-      setDarkMode(isDarkMode)
-      
+    chrome.storage.sync.get(['openaiApiKey', 'textMode', 'personalityMode', 'sageRevelation'], (result) => {      
       if (result.openaiApiKey) {
         setSavedApiKey('••••••••••••••••••••••••••••••••••••••••••••••••••••')
         setApiKey(result.openaiApiKey)
       }
       
-      setTokensUsed(result.tokensUsed || '--')
-      setAnalysisCost(result.analysisCost || '$0.00')
-      setSessionCost(result.sessionCost || '$0.00')
-      setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
       setTextMode(result.textMode || false)
-      
-      // Ensure dark mode is applied to body when settings page loads
-      if (isDarkMode) {
-        document.body.classList.add('dark-mode')
-      } else {
-        document.body.classList.remove('dark-mode')
-      }
+      setPersonalityMode(result.personalityMode || 'interviewer')
+      setSageRevelation(result.sageRevelation || 30)
     })
   }, [])
 
@@ -47,16 +31,36 @@ export const Settings = () => {
     chrome.storage.sync.set({ [setting]: value }, () => {
       console.log(`${setting} saved:`, value)
     })
-    if (setting === 'darkMode') {
-      setDarkMode(value)
-      // Immediately apply dark mode class to body
-      if (value) {
-        document.body.classList.add('dark-mode')
-      } else {
-        document.body.classList.remove('dark-mode')
-      }
-    } else if (setting === 'textMode') {
+    if (setting === 'textMode') {
       setTextMode(value)
+    }
+  }
+
+  const handlePersonalityModeChange = (mode: 'sage' | 'interviewer') => {
+    setPersonalityMode(mode)
+    chrome.storage.sync.set({ personalityMode: mode }, () => {
+      console.log('Personality mode saved:', mode)
+    })
+  }
+
+  const handleSageRevelationChange = (value: number) => {
+    setSageRevelation(value)
+    chrome.storage.sync.set({ sageRevelation: value }, () => {
+      console.log('Sage revelation level saved:', value)
+    })
+  }
+
+  const handleCopyApiKey = async () => {
+    try {
+      await navigator.clipboard.writeText(apiKey)
+      // Show temporary feedback
+      const originalStatus = saveStatus
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus(originalStatus), 1000)
+    } catch (error) {
+      console.error('Failed to copy API key:', error)
+      setSaveStatus('error')
+      setTimeout(() => setSaveStatus('idle'), 1000)
     }
   }
 
@@ -90,81 +94,15 @@ export const Settings = () => {
     }
   }
 
-  const handleResetSessionCost = () => {
-    setTokensUsed('--')
-    setAnalysisCost('$0.00')
-    setSessionCost('$0.00')
-    chrome.storage.sync.set({ 
-      tokensUsed: '--', 
-      analysisCost: '$0.00', 
-      sessionCost: '$0.00' 
-    })
-  }
-
-  const handleShortcutCapture = (e: React.KeyboardEvent) => {
-    if (!isCapturingShortcut) return
-    
-    e.preventDefault()
-    e.stopPropagation()
-    
-    const keys = []
-    if (e.ctrlKey) keys.push('ctrl')
-    if (e.shiftKey) keys.push('shift')
-    if (e.altKey) keys.push('alt')
-    if (e.metaKey) keys.push('cmd')
-    
-    // Add the main key (not modifier keys)
-    if (e.key && !['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
-      keys.push(e.key.toLowerCase())
-    }
-    
-    if (keys.length > 1) { // At least one modifier + one key
-      const shortcut = keys.join('+')
-      setRecordingShortcut(shortcut)
-      setIsCapturingShortcut(false)
-      
-      // Save to storage
-      chrome.storage.sync.set({ recordingShortcut: shortcut })
-    }
-  }
-
-  const startShortcutCapture = () => {
-    setIsCapturingShortcut(true)
-    setRecordingShortcut('Press keys...')
-  }
-
-  const cancelShortcutCapture = () => {
-    setIsCapturingShortcut(false)
-    // Restore previous shortcut
-    chrome.storage.sync.get(['recordingShortcut'], (result) => {
-      setRecordingShortcut(result.recordingShortcut || 'ctrl+shift+r')
-    })
-  }
 
   return (
     <>
-      <div className="settings-page">
-        <div className="header">
-          <div className="header-left">
-            <button 
-              onClick={() => navigate('/')} 
-              className="back-button"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 12H5"/>
-                <path d="M12 19l-7-7 7-7"/>
-              </svg>
-            </button>
-            <h1>DuckCode Settings</h1>
-          </div>
-        </div>
-        
-        <div className="settings-content">
+      <div className="settings-content">
           {/* No authentication required - open source version */}
 
           {/* OpenAI Configuration Section */}
           <div className="settings-section">
-            <h3>🔑 OpenAI Configuration</h3>
+            <h3>OpenAI Configuration</h3>
             <div className="setting-item api-key-section">
               <div className="api-key-content">
                 <p className="api-description">
@@ -192,36 +130,32 @@ export const Settings = () => {
                     {saveStatus === 'error' && '❌'}
                     {saveStatus === 'idle' && '💾'}
                   </button>
-                  {savedApiKey && (
-                    <button onClick={handleClearApiKey} className="clear-btn">
-                      🗑️
-                    </button>
-                  )}
+                   {savedApiKey && (
+                     <>
+                       <button onClick={handleCopyApiKey} className="copy-btn" title="Copy API Key">
+                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                         </svg>
+                       </button>
+                       <button onClick={handleClearApiKey} className="delete-btn" title="Delete API Key">
+                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                           <polyline points="3,6 5,6 21,6"/>
+                           <path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2V6"/>
+                           <line x1="10" y1="11" x2="10" y2="17"/>
+                           <line x1="14" y1="11" x2="14" y2="17"/>
+                         </svg>
+                       </button>
+                     </>
+                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Display Settings Section */}
-          <div className="settings-section">
-            <h3>🎨 Display Settings</h3>
-            <div className="setting-item">
-              <label htmlFor="dark-mode-switch">Dark Mode</label>
-              <label className="switch">
-                <input 
-                  type="checkbox" 
-                  id="dark-mode-switch"
-                  checked={darkMode}
-                  onChange={(e) => handleToggle('darkMode', e.target.checked)}
-                />
-                <span className="slider round"></span>
-              </label>
-            </div>
-          </div>
-
           {/* Interview Mode Settings Section */}
           <div className="settings-section">
-            <h3>💬 Interview Mode</h3>
+            <h3>Input/Output Mode</h3>
             <div className="setting-item">
               <div className="setting-content">
                 <label>Input Method</label>
@@ -234,129 +168,99 @@ export const Settings = () => {
                   className={`mode-button ${!textMode ? 'active' : ''}`}
                   onClick={() => handleToggle('textMode', false)}
                 >
-                  🎤 Voice
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  </svg>
+                  Voice
                 </button>
                 <button 
                   className={`mode-button ${textMode ? 'active' : ''}`}
                   onClick={() => handleToggle('textMode', true)}
                 >
-                  💬 Text
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  Text
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Recording Settings Section */}
+          {/* Personality Mode Settings Section */}
           <div className="settings-section">
-            <h3>🎤 Recording Settings</h3>
-            <div className="setting-item shortcut-setting">
-              <div className="shortcut-content">
-                <label>Recording Shortcut</label>
-                <p className="shortcut-description">
-                  Hold this key combination to open modal and record your response
+            <h3>DuckCode Personality</h3>
+            <div className="setting-item">
+              <div className="setting-content">
+                <label>AI Personality Mode</label>
+                <p className="setting-description">
+                  Choose how the AI should behave during coding sessions
                 </p>
-                <div className="shortcut-input-group">
-                  <input 
-                    type="text" 
-                    value={recordingShortcut}
-                    readOnly
-                    className="shortcut-display"
-                    onKeyDown={handleShortcutCapture}
-                    placeholder="Press keys..."
+              </div>
+              <div className="mode-selector">
+                <button 
+                  className={`mode-button ${personalityMode === 'sage' ? 'active' : ''}`}
+                  onClick={() => handlePersonalityModeChange('sage')}
+                >
+                  <span style={{ marginRight: '8px', fontSize: '16px' }}>🧙‍♂️</span>
+                  Sage Mode
+                </button>
+                <button 
+                  className={`mode-button ${personalityMode === 'interviewer' ? 'active' : ''}`}
+                  onClick={() => handlePersonalityModeChange('interviewer')}
+                >
+                  <span style={{ marginRight: '8px', fontSize: '16px' }}>💪</span>
+                  Interview Mode
+                </button>
+              </div>
+              <div className="personality-description">
+                {personalityMode === 'sage' ? (
+                  <p><strong>Sage Mode:</strong> Acts like a helpful pair programmer. Provides guidance, hints, and can reveal solutions based on your settings.</p>
+                ) : (
+                  <p><strong>Interviewer Mode:</strong> Acts like a technical interviewer. Only answers syntax questions and clarifies problems without revealing solutions.</p>
+                )}
+              </div>
+            </div>
+
+            {personalityMode === 'sage' && (
+              <div className="setting-item">
+                <div className="setting-content">
+                  <label>Solution Revelation Level</label>
+                  <p className="setting-description">
+                    How much should the Sage reveal when helping? (0% = hints only, 100% = full solutions)
+                  </p>
+                </div>
+                <div className="slider-container">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={sageRevelation}
+                    onChange={(e) => handleSageRevelationChange(parseInt(e.target.value))}
+                    className="revelation-slider"
                   />
-                  {isCapturingShortcut ? (
-                    <button onClick={cancelShortcutCapture} className="shortcut-btn cancel-btn">
-                      Cancel
-                    </button>
-                  ) : (
-                    <button onClick={startShortcutCapture} className="shortcut-btn change-btn">
-                      Change
-                    </button>
-                  )}
-                </div>
-                <div className="shortcut-help">
-                  <p>💡 Hold the shortcut keys to open modal and record. Release to stop recording.</p>
-                  <p>🖱️ You can also hold the Record button in the modal for the same functionality.</p>
+                  <div className="slider-labels">
+                    <span>Hints Only</span>
+                    <span className="slider-value">{sageRevelation}%</span>
+                    <span>Full Solutions</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
+
           
-          {/* Usage Statistics Section */}
-          <div className="pricing-info">
-            <h3>📊 Usage Statistics</h3>
-            <div className="pricing-details">
-              <div className="pricing-item">
-                <span className="pricing-label">Tokens used:</span>
-                <span className="pricing-value">{tokensUsed}</span>
-              </div>
-              <div className="pricing-item">
-                <span className="pricing-label">Cost:</span>
-                <span className="pricing-value">{analysisCost}</span>
-              </div>
-              <div className="pricing-item">
-                <span className="pricing-label">Total session cost:</span>
-                <span className="pricing-value">{sessionCost}</span>
-              </div>
-              <div className="pricing-note">
-                * Based on GPT-4o pricing: $2.50 per 1M input tokens
-              </div>
-              <button onClick={handleResetSessionCost} className="reset-cost-button">
-                Reset Session Cost
-              </button>
-            </div>
-          </div>
 
 
         </div>
-      </div>
 
       <style jsx="true">{`
         .settings-page {
           width: 100%;
         }
 
-        .header {
-          margin-bottom: 24px;
-          border-bottom: 1px solid #e1e5e9;
-          padding-bottom: 16px;
-        }
-
-        .header-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .back-button {
-          background: none;
-          border: none;
-          cursor: pointer;
-          padding: 6px;
-          border-radius: 6px;
-          transition: all 0.2s ease;
-          color: #666;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 32px;
-          min-height: 32px;
-          text-decoration: none;
-        }
-
-        .back-button:hover {
-          background-color: rgba(0, 0, 0, 0.1);
-          color: #333;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-        }
-
-        .header h1 {
-          margin: 0;
-          font-size: 24px;
-          font-weight: 600;
-          color: #1a1a1a;
-        }
 
         .settings-content {
           display: flex;
@@ -509,10 +413,12 @@ export const Settings = () => {
 
         .setting-item {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: space-between;
           padding: 12px 16px;
           border-bottom: 1px solid #f1f3f4;
+          flex-wrap: wrap;
+          gap: 12px;
         }
 
         .setting-item:last-child {
@@ -811,23 +717,6 @@ export const Settings = () => {
           color: #e5e5e5;
         }
 
-        :global(.dark-mode) .header {
-          border-bottom-color: #374151;
-        }
-
-        :global(.dark-mode) .header h1 {
-          color: #e5e5e5;
-        }
-
-        :global(.dark-mode) .back-button {
-          color: #d1d5db;
-        }
-
-        :global(.dark-mode) .back-button:hover {
-          background-color: rgba(255, 255, 255, 0.1);
-          color: #fff;
-          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-        }
 
         :global(.dark-mode) .settings-section {
           background-color: #374151;
@@ -1094,6 +983,105 @@ export const Settings = () => {
           background: #3b82f6;
           color: white;
         }
+
+        .copy-btn, .delete-btn {
+          background: #f8f9fa;
+          border: 1px solid #dee2e6;
+          border-radius: 6px;
+          padding: 8px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          margin-left: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .copy-btn:hover {
+          background: #e3f2fd;
+          border-color: #2196f3;
+          color: #2196f3;
+        }
+
+        .delete-btn:hover {
+          background: #ffebee;
+          border-color: #f44336;
+          color: #f44336;
+        }
+
+        .personality-description {
+          margin-top: 12px;
+          padding: 12px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          border-left: 4px solid #3b82f6;
+          width: 100%;
+          box-sizing: border-box;
+          overflow-wrap: break-word;
+          word-wrap: break-word;
+        }
+
+        .personality-description p {
+          margin: 0;
+          font-size: 14px;
+          line-height: 1.5;
+          color: #495057;
+          white-space: normal;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+
+        .slider-container {
+          width: 100%;
+          margin-top: 8px;
+        }
+
+        .revelation-slider {
+          width: 100%;
+          height: 6px;
+          border-radius: 3px;
+          background: #e5e7eb;
+          outline: none;
+          -webkit-appearance: none;
+          cursor: pointer;
+        }
+
+        .revelation-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: #3b82f6;
+          cursor: pointer;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .revelation-slider::-moz-range-thumb {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: #3b82f6;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .slider-labels {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 8px;
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .slider-value {
+          font-weight: 600;
+          color: #3b82f6;
+          font-size: 14px;
+        }
+
       `}</style>
     </>
   )
