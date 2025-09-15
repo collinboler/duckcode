@@ -11,7 +11,12 @@
   },
   "dependencies": {
     "@clerk/chrome-extension": "^2.5.13",
+    "@types/dompurify": "^3.2.0",
+    "@types/markdown-it": "^14.1.2",
+    "dompurify": "^3.2.6",
+    "markdown-it": "^14.1.0",
     "plasmo": "0.90.5",
+    "prismjs": "^1.30.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-router": "^7.7.1",
@@ -30,7 +35,7 @@
   "manifest": {
     "key": "$CRX_PUBLIC_KEY",
     "permissions": [
-      "cookies", 
+      "cookies",
       "storage",
       "sidePanel",
       "activeTab",
@@ -48,20 +53,20 @@
     "side_panel": {
       "default_path": "sidepanel.html"
     },
-          "action": {
-        "default_title": "DuckCode - Open Mock Interview",
-        "default_icon": {
-          "16": "~src/assets/duck_128.png",
-          "48": "~src/assets/duck_128.png",
-          "64": "~src/assets/duck_128.png",
-          "128": "~src/assets/duck_128.png"
-        }
-      },
-      "icons": {
+    "action": {
+      "default_title": "DuckCode - Open Mock Interview",
+      "default_icon": {
         "16": "~src/assets/duck_128.png",
         "48": "~src/assets/duck_128.png",
         "64": "~src/assets/duck_128.png",
         "128": "~src/assets/duck_128.png"
       }
+    },
+    "icons": {
+      "16": "~src/assets/duck_128.png",
+      "48": "~src/assets/duck_128.png",
+      "64": "~src/assets/duck_128.png",
+      "128": "~src/assets/duck_128.png"
+    }
   }
 }

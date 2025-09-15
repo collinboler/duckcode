@@ -1,4 +1,5 @@
 import cssText from "data-text:~style.css"
+import prismCss from "data-text:~styles/prism-theme.css"
 import type { PlasmoCSConfig } from "plasmo"
 import React, { useState, useEffect, useRef } from "react"
 import {
@@ -10,6 +11,7 @@ import {
   useUser
 } from '@clerk/chrome-extension'
 import { AIInterviewService, type InterviewContext } from '../services/aiInterviewService'
+// import { markdownRenderer } from '../services/markdownRenderer'
 import duckIconUrl from "data-base64:~assets/duck_128.png"
 
 declare global {
@@ -31,8 +33,15 @@ export const getStyle = (): HTMLStyleElement => {
     return `${pixelsValue}px`
   })
 
+  // Add Prism CSS for code syntax highlighting
+  let updatedPrismCss = prismCss.replaceAll(":root", ":host(plasmo-csui)")
+  updatedPrismCss = updatedPrismCss.replace(remRegex, (_, remValue) => {
+    const pixelsValue = parseFloat(remValue) * baseFontSize
+    return `${pixelsValue}px`
+  })
+
   const styleElement = document.createElement("style")
-  styleElement.textContent = updatedCssText
+  styleElement.textContent = updatedCssText + '\n' + updatedPrismCss
   return styleElement
 }
 
@@ -146,6 +155,14 @@ const DuckCodeModalContent = () => {
     })
   }, [])
 
+  // Clear conversation history when text mode changes to ensure new formatting rules apply
+  useEffect(() => {
+    if (aiService) {
+      console.log('Text mode changed, clearing conversation history to apply new formatting rules')
+      aiService.clearConversationHistory()
+    }
+  }, [textMode, aiService])
+
   // Initialize duck position
   useEffect(() => {
     const initializeDuckPosition = () => {
@@ -159,6 +176,65 @@ const DuckCodeModalContent = () => {
     setTimeout(initializeDuckPosition, 100)
   }, [])
 
+  // Add copy buttons to speech bubble code blocks when speechBubble content changes
+  useEffect(() => {
+    if (speechBubble && !isStreaming) {
+      // Small delay to ensure DOM is updated after markdown rendering
+      setTimeout(() => {
+        const speechBubbleElement = document.querySelector('.speech-bubble-content')
+        if (speechBubbleElement) {
+          addCopyButtonsToCodeBlocks(speechBubbleElement as HTMLElement)
+        }
+      }, 100)
+    }
+  }, [speechBubble, isStreaming])
+
+  // Helper function to add copy buttons to code blocks
+  const addCopyButtonsToCodeBlocks = (container: HTMLElement): void => {
+    const codeBlocks = container.querySelectorAll('pre.code-block')
+    
+    codeBlocks.forEach((pre) => {
+      // Skip if copy button already exists
+      if (pre.querySelector('.copy-btn')) return
+
+      const copyBtn = document.createElement('button')
+      copyBtn.className = 'copy-btn'
+      copyBtn.textContent = 'Copy'
+      copyBtn.setAttribute('aria-label', 'Copy code to clipboard')
+      
+      copyBtn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        
+        const code = pre.querySelector('code')
+        if (!code) return
+
+        try {
+          // Get the text content, preserving line breaks
+          const codeText = code.textContent || ''
+          await navigator.clipboard.writeText(codeText)
+          
+          copyBtn.textContent = 'Copied!'
+          copyBtn.classList.add('copied')
+          
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy'
+            copyBtn.classList.remove('copied')
+          }, 2000)
+        } catch (err) {
+          console.error('Failed to copy code:', err)
+          copyBtn.textContent = 'Failed'
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy'
+          }, 2000)
+        }
+      })
+
+      // Position the button
+      pre.style.position = 'relative'
+      pre.appendChild(copyBtn)
+    })
+  }
+
   // Helper function to clean HTML entities
   const cleanHtmlEntities = (text: string): string => {
     return text
@@ -170,6 +246,52 @@ const DuckCodeModalContent = () => {
       .replace(/&#39;/g, "'")
       .replace(/\s+/g, ' ')
       .trim()
+  }
+
+
+
+  // Helper function to render markdown and add copy buttons
+  const renderMarkdownContent = (text: string): string => {
+    if (!text) return ''
+    
+    try {
+      // Simple markdown parsing for now to avoid dependency issues
+      // Convert code blocks
+      let processed = text.replace(/```(\w+)?\s*\n([\s\S]*?)\n```/g, (match, lang, code) => {
+        const language = lang || 'text'
+        return `<pre class="code-block language-${language}"><code class="language-${language}">${escapeHtml(code.trim())}</code></pre>`
+      })
+      
+      // Convert inline code
+      processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>')
+      
+      // Convert line breaks
+      processed = processed.replace(/\n/g, '<br>')
+      
+      return processed
+    } catch (error) {
+      console.error('Markdown rendering failed:', error)
+      // Fallback to escaped text if markdown rendering fails
+      const escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\n/g, '<br>')
+      
+      return escaped
+    }
+  }
+
+  // Helper function to escape HTML
+  const escapeHtml = (text: string): string => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
   }
 
   // Scrape LeetCode content from the page
@@ -711,7 +833,7 @@ ${modeInstructions}`)
       console.log('Processing user input:', userText)
       console.log('Current context:', context)
 
-      const result = await aiService.getInterviewResponse(userText, context)
+      const result = await aiService.getInterviewResponse(userText, context, false) // Voice mode - no pretty code
 
       console.log('Received AI result:', result)
 
@@ -779,7 +901,7 @@ ${modeInstructions}`)
         const result = await aiService.getStreamingInterviewResponse(userText, context, (chunk) => {
           setStreamingText(prev => prev + chunk)
           setSpeechBubble(prev => (prev || '') + chunk)
-        })
+        }, true) // Text mode - enable pretty code formatting
 
         console.log('Received streaming AI result:', result)
 
@@ -796,7 +918,7 @@ ${modeInstructions}`)
         // Speech bubble stays up until manually dismissed
       } else {
         // Regular non-streaming response for modal mode
-        const result = await aiService.getInterviewResponse(userText, context)
+        const result = await aiService.getInterviewResponse(userText, context, textMode) // Pass textMode for pretty code formatting
 
         console.log('Received AI result:', result)
 
@@ -1310,6 +1432,7 @@ ${modeInstructions}`)
         x: modalX,
         y: modalY
       })
+      setIsVisible(true)
       setIsOpening(true)
       setIsMinimized(false)
 
@@ -1448,17 +1571,23 @@ ${modeInstructions}`)
               position: 'fixed',
               left: (() => {
                 const screenWidth = window.innerWidth;
-                const bubbleWidth = Math.min(350, screenWidth * 0.4);
+                const bubbleWidth = Math.min(450, screenWidth * 0.4); // Updated to match CSS max-width
                 
                 const isLeft = duckPosition.x < screenWidth / 2;
                 
+                let leftPos;
                 if (isLeft) {
                   // Duck on left side - bubble goes right, closer to duck
-                  return duckPosition.x + 75;
+                  leftPos = duckPosition.x + 75;
                 } else {
                   // Duck on right side - bubble goes left, closer to duck
-                  return duckPosition.x - bubbleWidth - 15;
+                  leftPos = duckPosition.x - bubbleWidth - 15;
                 }
+                
+                // Ensure bubble stays within screen bounds
+                leftPos = Math.max(10, Math.min(leftPos, screenWidth - bubbleWidth - 10));
+                
+                return leftPos;
               })() + 'px',
               top: (() => {
                 // Start at same Y level as duck (centered)
@@ -1479,7 +1608,7 @@ ${modeInstructions}`)
                 return bubbleTop;
               })() + 'px',
               zIndex: 10000,
-              width: `${Math.min(350, window.innerWidth * 0.4)}px`,
+              width: `${Math.min(450, window.innerWidth * 0.4)}px`,
               background: 'white',
               borderRadius: '18px',
               boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
@@ -1537,7 +1666,9 @@ ${modeInstructions}`)
                 position: 'relative',
               }}
             >
-              {speechBubble || (isStreaming ? 'Thinking...' : '')}
+              <div dangerouslySetInnerHTML={{ 
+                __html: speechBubble ? renderMarkdownContent(speechBubble) : (isStreaming ? 'Thinking...' : '') 
+              }} />
               {isStreaming && speechBubble && <span 
                 className="cursor"
                 style={{
@@ -1974,7 +2105,9 @@ ${modeInstructions}`)
                   🐛 Debug
                 </button>
               </div>
-              <div className="transcript-content">{transcript}</div>
+              <div className="transcript-content">
+                <div dangerouslySetInnerHTML={{ __html: renderMarkdownContent(transcript) }} />
+              </div>
             </div>
           )}
 
@@ -2409,7 +2542,9 @@ ${modeInstructions}`)
 
         /* Speech Bubble Styles */
         .speech-bubble {
-          max-width: 320px !important;
+          min-width: 280px !important;
+          max-width: 450px !important;
+          width: auto !important;
           background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%) !important;
           border-radius: 18px !important;
           box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
@@ -2418,6 +2553,9 @@ ${modeInstructions}`)
           animation: speechBubbleAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
           position: relative !important;
           overflow: hidden !important;
+          z-index: 10000 !important;
+          contain: layout style paint !important;
+          box-sizing: border-box !important;
         }
 
         .speech-bubble::before {
@@ -2488,6 +2626,13 @@ ${modeInstructions}`)
           color: #333 !important;
           min-height: 20px !important;
           position: relative !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+          white-space: pre-wrap !important;
+          hyphens: auto !important;
+          max-height: 400px !important;
+          overflow-y: auto !important;
+          contain: layout style !important;
         }
 
         .cursor {
@@ -2719,6 +2864,45 @@ ${modeInstructions}`)
           line-height: 1.4;
           color: #333;
         }
+
+
+
+        /* Ensure speech bubble content stays contained */
+        .speech-bubble {
+          overflow: hidden !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+
+        .speech-bubble * {
+          max-width: 100% !important;
+          box-sizing: border-box !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+        }
+
+        .speech-bubble .code-block {
+          width: 100% !important;
+          max-width: calc(100% - 16px) !important;
+          overflow: hidden !important;
+        }
+
+        .speech-bubble .code-content {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+          white-space: pre-wrap !important;
+          word-break: break-all !important;
+        }
+
+        .speech-bubble pre {
+          white-space: pre-wrap !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
+          max-width: 100% !important;
+        }
+
+
 
       `}</style>
     </div>

@@ -36,24 +36,92 @@ class AIInterviewService {
     console.log('Conversation history cleared for new problem')
   }
 
-  private buildSystemPrompt(): string {
+  private buildSystemPrompt(isTextMode: boolean = false): string {
     if (!this.staticContext) {
-      return `You are a mock coding interviewer helping someone practice technical interviews. 
-      Act as a friendly but professional interviewer. Keep responses conversational and encouraging. 
-      Respond in a few words to a sentence unless absolutely neccessary. sentences. Never use code blocks or special characters like brackets, parentheses, or symbols. Write everything as plain text as if you were speaking it aloud. Refrain from asking any follow up questions, like it's a real interview.`
+      if (isTextMode) {
+        return `You are a mock coding interviewer helping someone practice technical interviews. 
+        Act as a friendly but profess DONE   | Extension re-packaged in 1585ms! 🚀
+🟢 DONE   | Extension re-packaged in 548ms! 🚀
+🟢 DONE   | Extension re-packaged in 527ms! 🚀
+🟢 DONE   | Extension re-packaged in 577ms! 🚀
+🟢 DONE   | Extension re-packaged in 560ms! 🚀
+🟢 DONE   | Extension re-packaged in 576ms! 🚀
+🔴 ERROR  | Build failed. To debug, run plasmo dev --verbose.
+🔴 ERROR  | Entry /Users/collinboler/Downloads/coding/Kiro Hackathon/duckcode/.plasmo/chrome-mv3.plasmo.manifest.json does not exist
+🟢 DONE   | Extension re-packaged in 3824ms! 🚀
+🟢 DONE   | Extension re-packaged in 608ms! 🚀
+🟢 DONE   | Extension re-packaged in 589ms! 🚀
+🟢 DONE   | Extension re-packaged in 625ms! 🚀
+🟢 DONE   | Extension re-packaged in 536ms! 🚀
+🟢 DONE   | Extension re-packaged in 588ms! 🚀
+ional interviewer. Keep responses conversational and encouraging.
+        
+        CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE EXACTLY:
+        - ALWAYS use triple BACKTICKS (\`) not quotes (") for code blocks
+        - Format: \\\`\\\`\\\`python (with backticks, NOT """python)
+        - NEVER use triple quotes """ for code blocks
+        - ALWAYS close code blocks with \\\`\\\`\\\`
+        - Example format you MUST use:
+          \\\`\\\`\\\`python
+          def example():
+              return "formatted code"
+          \\\`\\\`\\\`
+        - Use \\\`variable_name\\\` for inline code references
+        - WRONG: """python or '''python
+        - RIGHT: \\\`\\\`\\\`python
+        
+        Provide detailed, well-formatted responses with code examples when helpful.`
+      } else {
+        return `You are a mock coding interviewer helping someone practice technical interviews. 
+        Act as a friendly but professional interviewer. Keep responses conversational and encouraging. 
+        Respond in a few words to a sentence unless absolutely neccessary. sentences. Never use code blocks or special characters like brackets, parentheses, or symbols. Write everything as plain text as if you were speaking it aloud. Refrain from asking any follow up questions, like it's a real interview.`
+      }
     }
 
     const { problemTitle, problemDescription, topics, hints, testCases } = this.staticContext
 
-    return `You are a coding interviewer for: ${problemTitle}
+    if (isTextMode) {
+      return `You are a coding interviewer for: ${problemTitle}
+
+Problem Description: ${problemDescription || 'Not available'}
+
+Key topics: ${topics || 'General'}
+
+Hints: ${hints || 'None provided'}
+
+Test Cases: ${testCases || 'None provided'}
+
+CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE EXACTLY:
+- ALWAYS use triple BACKTICKS (\`) not quotes (") for code blocks
+- Format: \\\`\\\`\\\`python (with backticks, NOT """python)
+- NEVER use triple quotes """ for code blocks
+- ALWAYS close code blocks with \\\`\\\`\\\`
+- Example format you MUST use:
+  \\\`\\\`\\\`python
+  def solution(nums):
+      return sum(nums)
+  \\\`\\\`\\\`
+- Use \\\`variable_name\\\` for inline code references
+- WRONG: """python or '''python
+- RIGHT: \\\`\\\`\\\`python
+
+Guidelines:
+- Be helpful and detailed in your explanations
+- Help debug code and suggest improvements
+- ALWAYS format code properly with markdown
+- Include code examples when helpful
+- Use proper indentation in code blocks`
+    } else {
+      return `You are a coding interviewer for: ${problemTitle}
 
 Key topics: ${topics || 'General'}
 
 Guidelines:
-- Be extremely concise (under 15 words)
+- Be extremely concise
 - Help debug code and suggest improvements
 - No special characters or code blocks
 - Speak naturally as plain text`
+    }
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
@@ -95,10 +163,10 @@ Guidelines:
     return data.text || data?.result?.text || ''
   }
 
-  async getInterviewResponse(userInput: string, context: InterviewContext): Promise<{ response: string, systemPrompt: string, userMessage: string }> {
+  async getInterviewResponse(userInput: string, context: InterviewContext, isTextMode: boolean = false): Promise<{ response: string, systemPrompt: string, userMessage: string }> {
     // Build dynamic context message and system prompt
     const contextMessage = this.buildContextMessage(context)
-    const systemPrompt = this.buildSystemPrompt()
+    const systemPrompt = this.buildSystemPrompt(isTextMode)
     const fullUserMessage = `${contextMessage}\n\nUser said: "${userInput}"`
 
     // Prepare messages for API - include conversation history properly
@@ -127,12 +195,10 @@ Guidelines:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-nano',
+        model: 'gpt-4o-mini',
         messages,
-        reasoning_effort: "low",    // optional: less reasoning for faster response
-        verbosity: "low"
-        // max_tokens: 150,
-        // temperature: 0.7
+        max_tokens: 500,
+        temperature: 0.7
       })
     })
 
@@ -170,11 +236,12 @@ Guidelines:
   async getStreamingInterviewResponse(
     userInput: string,
     context: InterviewContext,
-    onChunk: (chunk: string) => void
+    onChunk: (chunk: string) => void,
+    isTextMode: boolean = false
   ): Promise<{ fullResponse: string, systemPrompt: string, userMessage: string }> {
     // Build dynamic context message and system prompt
     const contextMessage = this.buildContextMessage(context)
-    const systemPrompt = this.buildSystemPrompt()
+    const systemPrompt = this.buildSystemPrompt(isTextMode)
     const fullUserMessage = `${contextMessage}\n\nUser said: "${userInput}"`
 
     // Prepare messages for API - include conversation history properly
@@ -201,10 +268,10 @@ Guidelines:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5-nano',
+        model: 'gpt-4o-mini',
         messages,
-        reasoning_effort: "low",
-        verbosity: "low",
+        max_tokens: 500,
+        temperature: 0.7,
         stream: true
       })
     })
