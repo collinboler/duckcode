@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useUser } from '@clerk/chrome-extension'
+// Removed Clerk authentication - no auth needed
 
 interface LeetCodeProblem {
   title: string
@@ -9,7 +9,7 @@ interface LeetCodeProblem {
 }
 
 export const Home = () => {
-  const { user, isSignedIn } = useUser()
+  // Removed auth - now open source and available to everyone
   const [isListening, setIsListening] = useState(false)
   const [currentProblem, setCurrentProblem] = useState<LeetCodeProblem | null>(null)
   const [interviewMode, setInterviewMode] = useState(false)

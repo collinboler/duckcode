@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { UserProfile, SignIn, SignedIn, SignedOut } from '@clerk/chrome-extension'
+// Removed Clerk authentication - no auth needed
 
 export const Settings = () => {
   const navigate = useNavigate()
@@ -160,34 +160,7 @@ export const Settings = () => {
         </div>
         
         <div className="settings-content">
-          {/* Authentication Section */}
-          <div className="settings-section">
-            <h3>Account</h3>
-            <SignedOut>
-              <SignIn 
-                routing="virtual"
-                appearance={{
-                  elements: {
-                    card: "auth-card",
-                    socialButtonsRoot: 'auth-hidden',
-                    dividerRow: 'auth-hidden',
-                    rootBox: "auth-root",
-                    formButtonPrimary: "auth-button"
-                  }
-                }}
-              />
-            </SignedOut>
-            <SignedIn>
-              <UserProfile 
-                appearance={{
-                  elements: {
-                    card: "profile-card",
-                    rootBox: "profile-root"
-                  }
-                }}
-              />
-            </SignedIn>
-          </div>
+          {/* No authentication required - open source version */}
 
           {/* OpenAI Configuration Section */}
           <div className="settings-section">

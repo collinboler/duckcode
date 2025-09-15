@@ -2,14 +2,7 @@ import cssText from "data-text:~style.css"
 import prismCss from "data-text:~styles/prism-theme.css"
 import type { PlasmoCSConfig } from "plasmo"
 import React, { useState, useEffect, useRef } from "react"
-import {
-  ClerkProvider,
-  SignInButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
-  useUser
-} from '@clerk/chrome-extension'
+// Removed Clerk authentication - now open source and auth-free
 import { AIInterviewService, type InterviewContext } from '../services/aiInterviewService'
 import duckIconUrl from "data-base64:~assets/duck_128.png"
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -66,12 +59,7 @@ interface LeetCodeContent {
 }
 
 // Get environment variables
-const PUBLISHABLE_KEY = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
-const EXTENSION_URL = chrome.runtime.getURL('.')
-
-if (!PUBLISHABLE_KEY) {
-  throw new Error('Please add the PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY to the .env.development file')
-}
+// Removed Clerk environment variables - no auth needed
 
 // Function to open sidepanel settings
 const openSidepanelSettings = (() => {
@@ -106,11 +94,12 @@ const openSidepanelSettings = (() => {
   }
 })()
 
-// Main modal content component (needs to be inside ClerkProvider)
+// Main modal content component - no authentication required
 const DuckCodeModalContent = () => {
-  const { user, isSignedIn } = useUser()
-  const [isVisible, setIsVisible] = useState(false)
+  // Removed auth - now open source and available to everyone
+  const [isVisible, setIsVisible] = useState(true) // Always visible now - static widget
   const [position, setPosition] = useState<Position>({ x: 20, y: 20 })
+  const [showPlanetModals, setShowPlanetModals] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 })
   const [isConnected, setIsConnected] = useState(false)
@@ -961,8 +950,8 @@ ${modeInstructions}`)
       console.log('Processing user input:', userText)
       console.log('Current context:', context)
 
-      // If modal is minimized and in text mode, start streaming to speech bubble
-      if (isMinimized && textMode) {
+      // In static widget mode, always stream to speech bubble for text mode
+      if (textMode) {
         setIsStreaming(true)
         setStreamingText('')
         setSpeechBubble('')
@@ -1290,11 +1279,8 @@ ${modeInstructions}`)
       console.log('Executing pending shortcut action')
       
       if (textMode) {
-        if (isMinimized && !showCompactInput) {
-          setShowCompactInput(true)
-        } else if (!isMinimized && !isTextInputVisible) {
-          setIsTextInputVisible(true)
-        }
+        setShowCompactInput(true)
+        console.log('Pending action: showing compact text input')
       } else if (!isRecording) {
         startRecording()
       }
@@ -1550,24 +1536,15 @@ ${modeInstructions}`)
         modalY = padding
       }
 
-      // Set modal position with adjustments
-      setPosition({
-        x: modalX,
-        y: modalY
-      })
-      setIsVisible(true)
-      setIsOpening(true)
-      setIsMinimized(false)
-
-      // Clear speech bubble and compact input when opening modal
+      // Toggle planet modals instead of opening full modal
+      setShowPlanetModals(!showPlanetModals)
+      
+      // Clear speech bubble and compact input when toggling
       setSpeechBubble(null)
       setShowCompactInput(false)
       setTextInput('')
       setIsStreaming(false)
       setStreamingText('')
-
-      // Remove opening animation after it completes
-      setTimeout(() => setIsOpening(false), 300)
     }
   }
 
@@ -1635,6 +1612,9 @@ ${modeInstructions}`)
     if (!textInput.trim() || isProcessingText) return
 
     const userText = textInput.trim()
+    console.log('Text submitted:', userText)
+    console.log('Current state:', { textMode, aiService: !!aiService, isConnected })
+    
     setTextInput('')
     setIsTextInputVisible(false)
     setShowCompactInput(false)
@@ -1681,11 +1661,21 @@ ${modeInstructions}`)
 
   if (!isVisible) return null
 
-  // Show minimized duck emoji
-  if (isMinimized) {
-    console.log('Duck position:', duckPosition, 'Window size:', window.innerWidth, window.innerHeight)
-    return (
-      <>
+  // Helper function to calculate safe planet position
+  const getSafePlanetPosition = (baseX: number, baseY: number, planetSize: number = 50) => {
+    const screenWidth = window.innerWidth
+    const screenHeight = window.innerHeight
+    const padding = 10
+
+    let safeX = Math.max(padding, Math.min(baseX, screenWidth - planetSize - padding))
+    let safeY = Math.max(padding, Math.min(baseY, screenHeight - planetSize - padding))
+
+    return { x: safeX, y: safeY }
+  }
+
+  // Always show static duck widget with optional planet modals
+  return (
+    <>
         {/* Speech Bubble */}
         {(speechBubble || isStreaming) && (
           <div
@@ -2007,1044 +1997,142 @@ ${modeInstructions}`)
         >
           <img src={duckIconUrl} alt="DuckCode" style={{ width: '36px', height: '36px', pointerEvents: 'none' }} />
         </div>
-      </>
-    )
-  }
 
-  return (
-    <div
-      ref={modalRef}
-      className={`duckcode-modal ${isOpening ? 'opening' : ''}`}
-      style={{
-        position: 'fixed',
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        zIndex: 10000,
-        cursor: isDragging ? 'grabbing' : 'grab',
-        transformOrigin: isOpening ? getTransformOrigin(duckPosition.x, duckPosition.y, position.x, position.y) : 'center'
-      }}
-    >
-      <div className="modal-header" onMouseDown={handleMouseDown}>
-        <div className="header-content">
-          <div className="logo"><img src={duckIconUrl} alt="DuckCode" style={{ width: '24px', height: '24px' }} /></div>
-          <div className="title">DuckCode</div>
-          <div className={`status-indicator ${connectionStatus}`}>
-            {connectionStatus === 'connected' && '🟢'}
-            {connectionStatus === 'connecting' && '🟡'}
-            {connectionStatus === 'disconnected' && '🔴'}
-          </div>
-        </div>
-        <div className="header-actions">
-          <button
-            className="settings-btn"
+        {/* Planet Modals */}
+      {showPlanetModals && !isDuckDragging && (
+        <>
+          {/* Settings Planet */}
+          <div
+            className="planet-modal"
+            style={{
+              position: 'fixed',
+              left: `${getSafePlanetPosition(duckPosition.x + 80, duckPosition.y - 10).x}px`,
+              top: `${getSafePlanetPosition(duckPosition.x + 80, duckPosition.y - 10).y}px`,
+              width: '50px',
+              height: '50px',
+              background: 'linear-gradient(135deg, #fd7e14 0%, #e55a00 100%)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
+              zIndex: 9998,
+              transition: 'all 0.3s ease',
+              transform: 'scale(1)',
+              opacity: 1
+            }}
             onClick={openSidepanelSettings}
             title="Settings"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
-          </button>
-          <button
-            className="close-btn"
-            onClick={() => {
-              // Update duck position to current modal position
-              const currentModalWidth = textMode && isTextInputVisible ? 450 : 350
-              const modalCenterX = position.x + (currentModalWidth / 2)
-              const modalCenterY = position.y + 200 // Approximate modal height/2
-
-              const windowWidth = window.innerWidth
-              const windowHeight = window.innerHeight
-
-              // Calculate distances to each edge from modal center
-              const distanceToLeft = modalCenterX
-              const distanceToRight = windowWidth - modalCenterX
-              const distanceToTop = modalCenterY
-              const distanceToBottom = windowHeight - modalCenterY
-
-              // Find the minimum distance
-              const minDistance = Math.min(distanceToLeft, distanceToRight, distanceToTop, distanceToBottom)
-
-              let snapX = position.x
-              let snapY = position.y
-
-              // Snap to the nearest edge
-              if (minDistance === distanceToLeft) {
-                // Snap to left edge
-                snapX = 20
-              } else if (minDistance === distanceToRight) {
-                // Snap to right edge
-                snapX = windowWidth - 80
-              } else if (minDistance === distanceToTop) {
-                // Snap to top edge
-                snapY = 20
-              } else if (minDistance === distanceToBottom) {
-                // Snap to bottom edge
-                snapY = windowHeight - 80
-              }
-
-              setDuckPosition({
-                x: snapX,
-                y: snapY
-              })
-              setIsMinimized(true)
-
-              // Trigger snap animation after duck appears
-              setTimeout(() => {
-                setIsSnapping(true)
-                setTimeout(() => setIsSnapping(false), 300)
-              }, 50)
-            }}
-          >
-            ×
-          </button>
-        </div>
-      </div>
-
-      <div className="modal-body">
-        {/* Authentication Section */}
-        <div className="auth-section">
-          <SignedOut>
-            <div className="auth-prompt">
-              <p>Sign in to start your mock interview</p>
-              <SignInButton mode="modal">
-                <button className="sign-in-btn">
-                  <span className="btn-icon">🔐</span>
-                  Sign In
-                </button>
-              </SignInButton>
-            </div>
-          </SignedOut>
-
-          <SignedIn>
-            <div className="user-info">
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox: "w-8 h-8"
-                  }
-                }}
-              />
-              <span className="welcome-text">Welcome, {user?.firstName || 'User'}!</span>
-            </div>
-          </SignedIn>
-        </div>
-
-        <SignedIn>
-          <div className="problem-info">
-            <div className="problem-title">{currentProblem}</div>
-            <div className="problem-status">
-              {leetcodeContent ? 'Content scraped ✅' : 'Problem detected ✅'}
-            </div>
           </div>
 
-          {!interviewMode ? (
-            <button className="start-btn" onClick={startInterview}>
-              <span className="btn-icon">{textMode ? '💬' : '🎤'}</span>
-              Start {textMode ? 'Text' : 'Voice'} Interview
-            </button>
-          ) : (
-            <div className="interview-controls">
-              {textMode ? (
-                <>
-                  <button
-                    className={`text-btn ${isTextInputVisible ? 'active' : ''}`}
-                    onClick={() => setIsTextInputVisible(!isTextInputVisible)}
-                    disabled={!isConnected || isProcessingText}
-                  >
-                    <span className="btn-icon">
-                      {isProcessingText ? '⏳' : '💬'}
-                    </span>
-                    {isProcessingText ? 'Processing...' : isTextInputVisible ? 'Hide Input' : 'Type Message'}
-                  </button>
-                </>
-              ) : (
-                <button
-                  className={`record-btn ${isRecording ? 'recording' : ''}`}
-                  onMouseDown={handleRecordMouseDown}
-                  onMouseUp={handleRecordMouseUp}
-                  onMouseLeave={handleRecordMouseUp}
-                  disabled={!isConnected}
-                >
-                  <span className="btn-icon">
-                    {isRecording ? '⏹️' : '🎤'}
-                  </span>
-                  {isRecording ? 'Recording...' : 'Hold to Record'}
-                </button>
-              )}
-
-              <button className="stop-btn" onClick={stopInterview}>
-                <span className="btn-icon">❌</span>
-                End
-              </button>
-            </div>
-          )}
-
-          {/* Text Input Area */}
-          {textMode && isTextInputVisible && (
-            <div className="text-input-area">
-              <form onSubmit={handleTextSubmit}>
-                <textarea
-                  value={textInput}
-                  onChange={(e) => setTextInput(e.target.value)}
-                  onKeyPress={handleTextKeyPress}
-                  placeholder="Type your response here... (Enter to send, Shift+Enter for new line)"
-                  className="text-input"
-                  autoFocus
-                  disabled={isProcessingText}
-                />
-                <div className="text-input-actions">
-                  <button
-                    type="submit"
-                    className="send-btn"
-                    disabled={!textInput.trim() || isProcessingText}
-                  >
-                    <span className="btn-icon">📤</span>
-                    Send
-                  </button>
-                  <button
-                    type="button"
-                    className="cancel-btn"
-                    onClick={() => {
-                      setIsTextInputVisible(false)
-                      setTextInput('')
-                    }}
-                  >
-                    <span className="btn-icon">❌</span>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {transcript && (
-            <div className="transcript">
-              <div className="transcript-header">
-                <span>💬 Interview Transcript</span>
-                <button 
-                  onClick={() => setShowDebugTab(!showDebugTab)}
-                  className="debug-toggle"
-                >
-                  🐛 Debug
-                </button>
-              </div>
-              <div className="transcript-content">
-                <MarkdownContent content={transcript} />
-              </div>
-            </div>
-          )}
-
-          {showDebugTab && (
-            <div className="debug-panel">
-              <div className="debug-header">🐛 Debug Context</div>
-              <div className="debug-content">
-                <div className="debug-section">
-                  <h4>System Prompt ({lastSystemPrompt.length} chars):</h4>
-                  <pre className="debug-text">{lastSystemPrompt}</pre>
-                </div>
-                <div className="debug-section">
-                  <h4>User Message ({lastUserMessage.length} chars):</h4>
-                  <pre className="debug-text">{lastUserMessage}</pre>
-                </div>
-              </div>
-            </div>
-          )}
-        </SignedIn>
-      </div>
-
-
-
-      <style>{`
-        .duckcode-modal {
-          width: ${textMode && isTextInputVisible ? '450px' : '350px'};
-          background: white;
-          border-radius: 16px;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-          border: 1px solid #e1e5e9;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          user-select: none;
-          backdrop-filter: blur(10px);
-          background: rgba(255, 255, 255, 0.95);
-          transition: width 0.3s ease;
-        }
-
-        .duckcode-modal.opening {
-          animation: modalOpen 0.3s ease;
-        }
-
-        @keyframes modalOpen {
-          0% {
-            transform: scale(0.17); /* 60px / 350px ≈ 0.17 */
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 
-              0 8px 25px rgba(0, 0, 0, 0.15),
-              0 0 0 3px rgba(255, 255, 255, 0.9),
-              0 0 0 4px rgba(102, 126, 234, 0.3);
-          }
-          100% {
-            transform: scale(1);
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.95);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-          }
-        }
-
-        .modal-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          padding: 12px 16px;
-          border-radius: 16px 16px 0 0;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          cursor: grab;
-        }
-
-        .modal-header:active {
-          cursor: grabbing;
-        }
-
-        .header-content {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .header-actions {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .logo {
-          font-size: 18px;
-        }
-
-        .title {
-          font-weight: 600;
-          font-size: 16px;
-        }
-
-        .status-indicator {
-          font-size: 12px;
-        }
-
-        .settings-btn, .close-btn {
-          background: none;
-          border: none;
-          color: white;
-          font-size: 16px;
-          cursor: pointer;
-          padding: 0;
-          width: 24px;
-          height: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 4px;
-          transition: background-color 0.2s;
-        }
-
-        .close-btn {
-          font-size: 20px;
-        }
-
-        .settings-btn:hover, .close-btn:hover {
-          background: rgba(255, 255, 255, 0.2);
-        }
-
-        .modal-body {
-          padding: 16px;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .auth-section {
-          text-align: center;
-        }
-
-        .auth-prompt p {
-          margin: 0 0 12px 0;
-          color: #666;
-          font-size: 14px;
-        }
-
-        .sign-in-btn {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border: none;
-          border-radius: 8px;
-          color: white;
-          padding: 10px 16px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          transition: transform 0.2s;
-          margin: 0 auto;
-        }
-
-        .sign-in-btn:hover {
-          transform: translateY(-1px);
-        }
-
-        .user-info {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          justify-content: center;
-        }
-
-        .welcome-text {
-          font-size: 14px;
-          color: #333;
-          font-weight: 500;
-        }
-
-        .problem-info {
-          text-align: center;
-        }
-
-        .problem-title {
-          font-weight: 600;
-          font-size: 14px;
-          color: #333;
-          margin-bottom: 4px;
-        }
-
-        .problem-status {
-          font-size: 12px;
-          color: #28a745;
-        }
-
-        .start-btn {
-          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-          border: none;
-          border-radius: 12px;
-          color: white;
-          padding: 12px 16px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          transition: transform 0.2s;
-        }
-
-        .start-btn:hover {
-          transform: translateY(-1px);
-        }
-
-        .interview-controls {
-          display: flex;
-          gap: 8px;
-        }
-
-        .record-btn, .text-btn, .stop-btn {
-          flex: 1;
-          border: none;
-          border-radius: 8px;
-          padding: 10px 12px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          transition: all 0.2s;
-          user-select: none;
-        }
-
-        .record-btn, .text-btn {
-          flex: 2; /* Make record/text button wider */
-        }
-
-        .record-btn {
-          background: #28a745;
-          color: white;
-        }
-
-        .record-btn.recording {
-          background: #dc3545;
-          animation: pulse 2s infinite;
-        }
-
-        .record-btn:disabled {
-          background: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .text-btn {
-          background: #007bff;
-          color: white;
-        }
-
-        .text-btn.active {
-          background: #28a745;
-        }
-
-        .text-btn:disabled {
-          background: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .stop-btn {
-          background: #6c757d;
-          color: white;
-        }
-
-        .record-btn:hover:not(:disabled), .text-btn:hover:not(:disabled), .stop-btn:hover {
-          transform: translateY(-1px);
-        }
-
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.7; }
-          100% { opacity: 1; }
-        }
-
-        .transcript {
-          background: #f8f9fa;
-          border-radius: 8px;
-          overflow: hidden;
-          border: 1px solid #e9ecef;
-          max-height: 200px;
-        }
-
-        .transcript-header {
-          background: #e9ecef;
-          padding: 8px 12px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          font-size: 12px;
-          font-weight: 600;
-          color: #495057;
-        }
-
-        .transcript-content {
-          padding: 12px;
-          font-size: 12px;
-          line-height: 1.4;
-          color: #333;
-          max-height: 150px;
-          overflow-y: auto;
-          white-space: pre-wrap;
-        }
-
-        .btn-icon {
-          font-size: 14px;
-        }
-
-        .text-input-area {
-          background: #f8f9fa;
-          border-radius: 8px;
-          padding: 12px;
-          border: 1px solid #e9ecef;
-        }
-
-        .text-input {
-          width: 100%;
-          min-height: 80px;
-          max-height: 120px;
-          padding: 8px 12px;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          font-size: 14px;
-          font-family: inherit;
-          resize: vertical;
-          outline: none;
-          margin-bottom: 8px;
-        }
-
-        .text-input:focus {
-          border-color: #007bff;
-          box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
-        }
-
-        .text-input:disabled {
-          background: #f8f9fa;
-          color: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .text-input-actions {
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
-        }
-
-        .send-btn, .cancel-btn {
-          border: none;
-          border-radius: 6px;
-          padding: 6px 12px;
-          font-size: 12px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          transition: all 0.2s;
-        }
-
-        .send-btn {
-          background: #28a745;
-          color: white;
-        }
-
-        .send-btn:disabled {
-          background: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .cancel-btn {
-          background: #6c757d;
-          color: white;
-        }
-
-        .send-btn:hover:not(:disabled), .cancel-btn:hover {
-          transform: translateY(-1px);
-        }
-
-        /* Minimized Duck Styles */
-        .duck-minimized {
-          position: fixed !important;
-          width: 60px !important;
-          height: 60px !important;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-          border-radius: 50% !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          font-size: 28px !important;
-          cursor: grab !important;
-          box-shadow: 
-            0 8px 25px rgba(0, 0, 0, 0.15),
-            0 0 0 3px rgba(255, 255, 255, 0.9),
-            0 0 0 4px rgba(102, 126, 234, 0.3) !important;
-          z-index: 9999 !important;
-          transition: all 0.3s ease !important;
-          user-select: none !important;
-          backdrop-filter: blur(10px);
-          border: none !important;
-          outline: none !important;
-        }
-
-        .duck-minimized:hover:not(.dragging) {
-          transform: translateY(-3px) scale(1.05);
-          box-shadow: 
-            0 12px 35px rgba(0, 0, 0, 0.2),
-            0 0 0 3px rgba(255, 255, 255, 1),
-            0 0 0 5px rgba(102, 126, 234, 0.4);
-        }
-
-        .duck-minimized:active {
-          transform: translateY(-1px) scale(1.02);
-        }
-
-        .duck-minimized.dragging {
-          cursor: grabbing;
-          transform: scale(1.1);
-          box-shadow: 
-            0 15px 40px rgba(0, 0, 0, 0.25),
-            0 0 0 3px rgba(255, 255, 255, 1),
-            0 0 0 6px rgba(102, 126, 234, 0.5);
-          transition: none;
-        }
-
-        .duck-minimized.snapping {
-          transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-
-        /* Speech Bubble Styles */
-        .speech-bubble {
-          min-width: 280px !important;
-          max-width: 450px !important;
-          width: auto !important;
-          background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%) !important;
-          border-radius: 18px !important;
-          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
-          border: 1px solid #e1e5e9 !important;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-          animation: speechBubbleAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-          position: relative !important;
-          overflow: hidden !important;
-          z-index: 10000 !important;
-          contain: layout style paint !important;
-          box-sizing: border-box !important;
-        }
-
-        .speech-bubble::before {
-          content: '' !important;
-          position: absolute !important;
-          left: -10px !important;
-          top: 30px !important;
-          width: 0 !important;
-          height: 0 !important;
-          border-top: 10px solid transparent !important;
-          border-bottom: 10px solid transparent !important;
-          border-right: 10px solid #f8f9fa !important;
-          filter: drop-shadow(-1px 0 1px rgba(0, 0, 0, 0.1)) !important;
-        }
-
-        .speech-bubble-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-          padding: 8px 16px !important;
-          display: flex !important;
-          align-items: center !important;
-          gap: 8px !important;
-          color: white !important;
-          font-size: 13px !important;
-          font-weight: 600 !important;
-        }
-
-        .interviewer-avatar {
-          font-size: 16px !important;
-        }
-
-        .interviewer-name {
-          flex: 1 !important;
-        }
-
-        .typing-indicator {
-          display: flex !important;
-          gap: 2px !important;
-          align-items: center !important;
-        }
-
-        .typing-indicator span {
-          width: 4px !important;
-          height: 4px !important;
-          background: rgba(255, 255, 255, 0.8) !important;
-          border-radius: 50% !important;
-          animation: typingDot 1.4s infinite ease-in-out !important;
-        }
-
-        .typing-indicator span:nth-child(1) { animation-delay: -0.32s !important; }
-        .typing-indicator span:nth-child(2) { animation-delay: -0.16s !important; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0s !important; }
-
-        @keyframes typingDot {
-          0%, 80%, 100% { 
-            transform: scale(0.8) !important;
-            opacity: 0.5 !important;
-          }
-          40% { 
-            transform: scale(1) !important;
-            opacity: 1 !important;
-          }
-        }
-
-        .speech-bubble-content {
-          padding: 16px !important;
-          font-size: 14px !important;
-          line-height: 1.5 !important;
-          color: #333 !important;
-          min-height: 20px !important;
-          position: relative !important;
-          word-wrap: break-word !important;
-          overflow-wrap: break-word !important;
-          white-space: pre-wrap !important;
-          hyphens: auto !important;
-          max-height: 400px !important;
-          overflow-y: auto !important;
-          contain: layout style !important;
-        }
-
-        .cursor {
-          animation: blink 1s infinite;
-          color: #667eea;
-          font-weight: bold;
-        }
-
-        @keyframes blink {
-          0%, 50% { opacity: 1; }
-          51%, 100% { opacity: 0; }
-        }
-
-        .speech-bubble-close {
-          position: absolute;
-          top: 6px;
-          right: 8px;
-          background: rgba(255, 255, 255, 0.2);
-          border: none;
-          font-size: 14px;
-          cursor: pointer;
-          color: white;
-          width: 24px;
-          height: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 50%;
-          transition: all 0.2s;
-          backdrop-filter: blur(10px);
-        }
-
-        .speech-bubble-close:hover {
-          background: rgba(255, 255, 255, 0.3);
-          transform: scale(1.1);
-        }
-
-        @keyframes speechBubbleAppear {
-          0% {
-            opacity: 0 !important;
-            transform: scale(0.8) translateY(10px) !important;
-          }
-          100% {
-            opacity: 1 !important;
-            transform: scale(1) translateY(0) !important;
-          }
-        }
-
-        /* Compact Text Input Styles */
-        .compact-text-input {
-          background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%) !important;
-          border-radius: 18px !important;
-          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
-          border: 1px solid #e1e5e9 !important;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-          animation: compactInputAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-          position: relative !important;
-          min-width: 280px !important;
-          overflow: hidden !important;
-        }
-
-        .compact-text-input::before {
-          content: '' !important;
-          position: absolute !important;
-          left: -10px !important;
-          top: 50% !important;
-          transform: translateY(-50%) !important;
-          width: 0 !important;
-          height: 0 !important;
-          border-top: 10px solid transparent !important;
-          border-bottom: 10px solid transparent !important;
-          border-right: 10px solid #ffffff !important;
-          filter: drop-shadow(-1px 0 1px rgba(0, 0, 0, 0.1)) !important;
-        }
-
-        .compact-input-header {
-          background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
-          padding: 8px 16px !important;
-          display: flex !important;
-          align-items: center !important;
-          gap: 8px !important;
-          color: white !important;
-          font-size: 13px !important;
-          font-weight: 600 !important;
-        }
-
-        .user-avatar {
-          font-size: 16px !important;
-        }
-
-        .user-name {
-          flex: 1 !important;
-        }
-
-        .compact-input-wrapper {
-          display: flex !important;
-          align-items: center !important;
-          padding: 12px 16px !important;
-          gap: 12px !important;
-        }
-
-        .compact-input {
-          flex: 1 !important;
-          border: none !important;
-          outline: none !important;
-          font-size: 14px !important;
-          font-family: inherit !important;
-          background: transparent !important;
-          padding: 8px 12px !important;
-          border-radius: 8px !important;
-          transition: background-color 0.2s !important;
-        }
-
-        .compact-input:focus {
-          background: rgba(40, 167, 69, 0.05);
-        }
-
-        .compact-input::placeholder {
-          color: #999;
-        }
-
-        .compact-input:disabled {
-          color: #666;
-          background: rgba(0, 0, 0, 0.05);
-        }
-
-        .compact-send-btn {
-          background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
-          border: none !important;
-          font-size: 14px !important;
-          cursor: pointer !important;
-          padding: 8px 12px !important;
-          border-radius: 8px !important;
-          color: white !important;
-          font-weight: 600 !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          transition: all 0.2s !important;
-          min-width: 60px !important;
-        }
-
-        .compact-send-btn:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
-        }
-
-        .compact-send-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
-        }
-
-        @keyframes compactInputAppear {
-          0% {
-            opacity: 0 !important;
-            transform: scale(0.8) translateY(-10px) !important;
-          }
-          100% {
-            opacity: 1 !important;
-            transform: scale(1) translateY(0) !important;
-          }
-        }
-
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-
-        .debug-toggle {
-          background: #007AFF;
-          color: white;
-          border: none;
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 12px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .debug-toggle:hover {
-          background: #0056CC;
-        }
-
-        .debug-panel {
-          background: #f8f9fa;
-          border: 1px solid #e1e5e9;
-          border-radius: 8px;
-          margin-top: 8px;
-          max-height: 400px;
-          overflow-y: auto;
-        }
-
-        .debug-header {
-          background: #e9ecef;
-          padding: 8px 12px;
-          font-weight: 600;
-          font-size: 14px;
-          border-bottom: 1px solid #dee2e6;
-        }
-
-        .debug-content {
-          padding: 12px;
-        }
-
-        .debug-section {
-          margin-bottom: 16px;
-        }
-
-        .debug-section h4 {
-          margin: 0 0 8px 0;
-          font-size: 13px;
-          color: #666;
-          font-weight: 600;
-        }
-
-        .debug-text {
-          background: white;
-          border: 1px solid #e1e5e9;
-          border-radius: 4px;
-          padding: 8px;
-          font-size: 11px;
-          font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-          white-space: pre-wrap;
-          word-wrap: break-word;
-          max-height: 200px;
-          overflow-y: auto;
-          line-height: 1.4;
-          color: #333;
-        }
-
-
-
-        /* Ensure speech bubble content stays contained */
-        .speech-bubble {
-          overflow: hidden !important;
-          word-wrap: break-word !important;
-          overflow-wrap: break-word !important;
-        }
-
-        .speech-bubble * {
-          max-width: 100% !important;
-          box-sizing: border-box !important;
-          word-wrap: break-word !important;
-          overflow-wrap: break-word !important;
-        }
-
-        .speech-bubble .code-block {
-          width: 100% !important;
-          max-width: calc(100% - 16px) !important;
-          overflow: hidden !important;
-        }
-
-        .speech-bubble .code-content {
-          width: 100% !important;
-          max-width: 100% !important;
-          overflow-x: hidden !important;
-          white-space: pre-wrap !important;
-          word-break: break-all !important;
-        }
-
-        .speech-bubble pre {
-          white-space: pre-wrap !important;
-          word-wrap: break-word !important;
-          overflow-wrap: break-word !important;
-          max-width: 100% !important;
-        }
-
-
-
-      `}</style>
-    </div>
+          {/* Speak/Chat Planet */}
+          <div
+            className="planet-modal"
+            style={{
+              position: 'fixed',
+              left: `${getSafePlanetPosition(duckPosition.x + 40, duckPosition.y - 50).x}px`,
+              top: `${getSafePlanetPosition(duckPosition.x + 40, duckPosition.y - 50).y}px`,
+              width: '50px',
+              height: '50px',
+              background: textMode 
+                ? 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' 
+                : 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
+              zIndex: 9998,
+              transition: 'all 0.3s ease',
+              transform: 'scale(1)',
+              opacity: 1
+            }}
+            onClick={() => {
+              console.log('Chat/Speak planet clicked', { textMode, interviewMode, isConnected, isRecording })
+              
+              // Auto-start interview if not started
+              if (!interviewMode) {
+                startInterview()
+                // Set pending action to execute when connected
+                setPendingShortcutAction(true)
+              } else {
+                // If interview is already running, handle immediately
+                if (isConnected) {
+                  if (textMode) {
+                    setShowCompactInput(!showCompactInput)
+                    console.log('Toggling text input visibility')
+                  } else {
+                    if (!isRecording) {
+                      startRecording()
+                      console.log('Starting recording')
+                    }
+                  }
+                }
+              }
+            }}
+            title={textMode ? 'Toggle Text Input' : 'Start Recording'}
+          >
+            {textMode ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 9V5a3 3 0 0 0-6 0v4"></path>
+                <path d="M11 5h2a2 2 0 0 1 2 2v6.5a1.5 1.5 0 0 1-3 0V9h-2v4.5a1.5 1.5 0 0 1-3 0V7a2 2 0 0 1 2-2z"></path>
+                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+            )}
+          </div>
+
+          {/* Close Planet */}
+          <div
+            className="planet-modal"
+            style={{
+              position: 'fixed',
+              left: `${getSafePlanetPosition(duckPosition.x - 20, duckPosition.y - 30, 40).x}px`,
+              top: `${getSafePlanetPosition(duckPosition.x - 20, duckPosition.y - 30, 40).y}px`,
+              width: '40px',
+              height: '40px',
+              background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
+              zIndex: 9998,
+              transition: 'all 0.3s ease',
+              transform: 'scale(1)',
+              opacity: 1
+            }}
+            onClick={() => setShowPlanetModals(false)}
+            title="Close"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </div>
+        </>
+      )}
+    </>
   )
 }
 
-// Main component with ClerkProvider wrapper
+// Main component - no authentication wrapper needed
 const DuckCodeModal = () => {
-  return (
-    <ClerkProvider
-      publishableKey={PUBLISHABLE_KEY}
-      afterSignOutUrl={`${EXTENSION_URL}/popup.html`}
-      signInFallbackRedirectUrl={`${EXTENSION_URL}/popup.html`}
-      signUpFallbackRedirectUrl={`${EXTENSION_URL}/popup.html`}
-    >
-      <DuckCodeModalContent />
-    </ClerkProvider>
-  )
+  return <DuckCodeModalContent />
 }
 
 export default DuckCodeModal

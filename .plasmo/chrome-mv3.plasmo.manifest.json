@@ -17,7 +17,7 @@
   },
   "version": "0.0.2",
   "author": "Collin Boler",
-  "name": "DuckCode",
+  "name": "DEV | DuckCode",
   "description": "Voice-to-voice mock coding interviewer for LeetCode practice",
   "background": {
     "service_worker": "./static/background/index.ts"
@@ -58,8 +58,6 @@
   ],
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyJPnMLiDF95L+qeHLpVlm5mOG9DWMKlqfmhKkTDpcTWYVTh0G3+tvodknzltyqfPS+TtRQ4JN8JkbwN5n/O8C6uG/aksQLAj+9GMrsdvXWqmOb7mvBTWHakpYbBz7Vdqvk1OSRWVa5VBGdhbORfas0/s1iQb1m/w+8QhJi6B2RHutb/9dCXFYhNgRrzscSbPIZBnj6xfecyX6HM6V4Ivh0v2RSvPrmy8IQiurl3sbntSVZd7GDCj0mwy54LYsonVmridEIFFbzTG6LUXMFd2JazB2UYldUjAvS47yWKL1vT7pw7ad++PMTWC6zymyCsVTTi6GxW0tieve3RvJXS5oQIDAQAB",
   "host_permissions": [
-    "https://*.clerk.accounts.dev/*",
-    "$CLERK_FRONTEND_API/*",
     "http://localhost/*",
     "https://localhost/*",
     "https://api.openai.com/*",

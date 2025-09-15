@@ -10,7 +10,6 @@
     "package": "plasmo package"
   },
   "dependencies": {
-    "@clerk/chrome-extension": "^2.5.13",
     "@types/dompurify": "^3.2.0",
     "@types/markdown-it": "^14.1.2",
     "@types/react-syntax-highlighter": "^15.5.13",
@@ -46,8 +45,6 @@
       "tabCapture"
     ],
     "host_permissions": [
-      "https://*.clerk.accounts.dev/*",
-      "$CLERK_FRONTEND_API/*",
       "http://localhost/*",
       "https://localhost/*",
       "https://api.openai.com/*",

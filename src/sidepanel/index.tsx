@@ -8,8 +8,7 @@ import { ErrorBoundary } from './components/error-boundary'
 import { RootLayout } from './layouts/root-layout'
 import { Home } from './routes/home'
 import { Settings } from './routes/settings'
-import { SignInPage } from './routes/sign-in'
-import { SignUpPage } from './routes/sign-up'
+// Removed sign-in and sign-up imports - no auth needed
 
 // Error component for route-level errors
 const RouteErrorComponent = () => (
@@ -39,16 +38,6 @@ const router = createMemoryRouter([
       { 
         path: '/', 
         element: <Home />,
-        errorElement: <RouteErrorComponent />
-      },
-      { 
-        path: '/sign-in', 
-        element: <SignInPage />,
-        errorElement: <RouteErrorComponent />
-      },
-      { 
-        path: '/sign-up', 
-        element: <SignUpPage />,
         errorElement: <RouteErrorComponent />
       },
       { 

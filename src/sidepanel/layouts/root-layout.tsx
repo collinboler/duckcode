@@ -1,28 +1,9 @@
 import { Link, Outlet, useNavigate, useLocation } from 'react-router'
-import { ClerkProvider, SignedIn, SignedOut, UserButton } from '@clerk/chrome-extension'
 import { useEffect, useRef, useState } from 'react'
 
 import logoUrl from "data-base64:~assets/duck_128.png"
 
-const PUBLISHABLE_KEY = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
-
-if (!PUBLISHABLE_KEY) {
-  throw new Error('Please add the PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY to the .env.development file')
-}
-
-const SYNC_HOST = process.env.PLASMO_PUBLIC_CLERK_SYNC_HOST
-
-if (!PUBLISHABLE_KEY) {
-  throw new Error('Please add the PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY to the .env.development file')
-}
-
-// Check if we're in development mode
-const isDevelopment = PUBLISHABLE_KEY.includes('test_') || PUBLISHABLE_KEY.includes('pk_test_')
-
-// For development, allow missing sync host
-if (!SYNC_HOST && !isDevelopment) {
-  throw new Error('Please add the PLASMO_PUBLIC_CLERK_SYNC_HOST to the .env.development file')
-}
+// Removed Clerk environment variables - no auth needed
 
 export const RootLayout = () => {
   const navigate = useNavigate()
@@ -34,43 +15,17 @@ export const RootLayout = () => {
   const [darkMode, setDarkMode] = useState(false)
   const pageRef = useRef<HTMLDivElement>(null)
 
-  // Helper function to check if a path is an authentication route
-  const isAuthRoute = (path: string) => path === '/sign-in' || path === '/sign-up'
-
-  // Safe navigation handlers for Clerk
-  const safeNavigate = (to: string) => {
-    try {
-      navigate(to)
-    } catch (error) {
-      console.warn('Navigation error:', error)
-      window.location.hash = `#${to}`
-    }
-  }
-
-  const safeNavigateReplace = (to: string) => {
-    try {
-      navigate(to, { replace: true })
-    } catch (error) {
-      console.warn('Navigation error (replace):', error)
-      window.location.hash = `#${to}`
-    }
-  }
+  // No authentication routes needed anymore
 
   // Enhanced navigation with sliding animation
   const navigateWithSlide = (to: string) => {
     if (to === location.pathname) return
     
-    // Don't use sliding animation for authentication routes
-    if (to === '/sign-in' || to === '/sign-up' || location.pathname === '/sign-in' || location.pathname === '/sign-up') {
-      safeNavigate(to)
-      return
-    }
-    
     setIsTransitioning(true)
     setPreviousPath(location.pathname)
     
     setTimeout(() => {
-      safeNavigate(to)
+      navigate(to)
       setTimeout(() => {
         setIsTransitioning(false)
       }, 300)
@@ -81,10 +36,7 @@ export const RootLayout = () => {
   useEffect(() => {
     const currentPath = location.pathname
     
-    // Skip animations for authentication routes
-    if (isAuthRoute(currentPath) || isAuthRoute(previousPath)) {
-      return
-    }
+    // No authentication routes to skip anymore
     
     if (currentPath !== previousPath && pageRef.current) {
       // Determine slide direction
@@ -138,19 +90,7 @@ export const RootLayout = () => {
   }
 
   return (
-    <ClerkProvider
-      routerPush={safeNavigate}
-      routerReplace={safeNavigateReplace}
-      publishableKey={PUBLISHABLE_KEY}
-      afterSignOutUrl="/"
-      signInFallbackRedirectUrl="/"
-      signUpFallbackRedirectUrl="/"
-      signInForceRedirectUrl="/"
-      signUpForceRedirectUrl="/"
-      {...(SYNC_HOST && !isDevelopment && { syncHost: SYNC_HOST })}
-      allowedRedirectOrigins={[EXTENSION_URL]}
-    >
-      <>
+    <>
         <div className={`sidepanel-container ${darkMode ? 'dark-mode' : ''}`}>
           {/* Header with auth controls */}
           <header className="header">
@@ -159,13 +99,7 @@ export const RootLayout = () => {
               <h1><i>DuckCode</i></h1>
             </div>
             <div className="header-right">
-              <SignedIn>
-                <UserButton appearance={{
-                  elements: {
-                    avatarBox: "user-avatar"
-                  }
-                }} />
-              </SignedIn>
+              {/* Removed UserButton - no auth needed */}
               <button 
                 onClick={() => navigateWithSlide('/settings')} 
                 className="settings-button"
@@ -181,7 +115,7 @@ export const RootLayout = () => {
 
           {/* Main content area with sliding animation */}
                           <main 
-                  className={`main-content ${isTransitioning && !isAuthRoute(location.pathname) ? 'transitioning' : ''} ${location.pathname === '/settings' ? 'settings-active' : 'home-active'}`}
+                  className={`main-content ${isTransitioning ? 'transitioning' : ''} ${location.pathname === '/settings' ? 'settings-active' : 'home-active'}`}
                   ref={pageRef}
                 >
                   <div className={`page-container ${location.pathname === '/' ? 'main-page' : 'settings-page'}`}>
@@ -451,7 +385,6 @@ export const RootLayout = () => {
             }
           }
         `}</style>
-      </>
-    </ClerkProvider>
+    </>
   )
 } 
