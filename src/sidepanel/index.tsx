@@ -6,7 +6,6 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import { ErrorBoundary } from './components/error-boundary'
 import { RootLayout } from './layouts/root-layout'
-import { Home } from './routes/home'
 import { Settings } from './routes/settings'
 // Removed sign-in and sign-up imports - no auth needed
 
@@ -37,7 +36,7 @@ const router = createMemoryRouter([
     children: [
       { 
         path: '/', 
-        element: <Home />,
+        element: <Settings />, // Default to settings
         errorElement: <RouteErrorComponent />
       },
       { 
@@ -48,7 +47,7 @@ const router = createMemoryRouter([
       // Catch-all route for any unmatched paths
       {
         path: '*',
-        element: <Home />,
+        element: <Settings />, // Always redirect to settings
         errorElement: <RouteErrorComponent />
       }
     ],

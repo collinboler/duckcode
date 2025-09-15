@@ -110,7 +110,7 @@ const DuckCodeModalContent = () => {
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const [isMinimized, setIsMinimized] = useState(false)
   const [isOpening, setIsOpening] = useState(false)
-  const [duckPosition, setDuckPosition] = useState<Position>({ x: 0, y: 0 })
+  const [duckPosition, setDuckPosition] = useState<Position>({ x: 20, y: 20 })
   const [isDuckDragging, setIsDuckDragging] = useState(false)
   const [duckDragOffset, setDuckDragOffset] = useState<Position>({ x: 0, y: 0 })
   const [isSnapping, setIsSnapping] = useState(false)
@@ -1149,35 +1149,35 @@ ${modeInstructions}`)
         
         e.preventDefault()
         e.stopPropagation()
-        
+
         console.log('Shortcut detected:', recordingShortcut)
 
         // Auto-start interview if it hasn't started yet AND immediately show input
         if (!interviewMode) {
           // Initialize interview (async). Input will show once connected
           startInterview()
-          
+
           // Set flag to show input when connection is ready
           setPendingShortcutAction(true)
         } else {
           // If interview is already running, handle immediately
-          if (isConnected) {
-            if (textMode) {
-              if (isMinimized) {
-                // Show compact input when minimized
-                setShowCompactInput(true)
-              } else {
-                // Show text input in modal
-                setIsTextInputVisible(true)
-              }
+        if (isConnected) {
+          if (textMode) {
+            if (isMinimized) {
+              // Show compact input when minimized
+              setShowCompactInput(true)
             } else {
-              // Start recording for voice mode
-              if (!isRecording) {
-                startRecording()
-              }
+              // Show text input in modal
+              setIsTextInputVisible(true)
+            }
+          } else {
+            // Start recording for voice mode
+            if (!isRecording) {
+              startRecording()
             }
           }
         }
+      }
         return
       }
 
@@ -1279,7 +1279,7 @@ ${modeInstructions}`)
       console.log('Executing pending shortcut action')
       
       if (textMode) {
-        setShowCompactInput(true)
+          setShowCompactInput(true)
         console.log('Pending action: showing compact text input')
       } else if (!isRecording) {
         startRecording()
@@ -1661,21 +1661,72 @@ ${modeInstructions}`)
 
   if (!isVisible) return null
 
-  // Helper function to calculate safe planet position
-  const getSafePlanetPosition = (baseX: number, baseY: number, planetSize: number = 50) => {
+  // Helper function to calculate smart planet positions based on duck location
+  const getPlanetPositions = () => {
     const screenWidth = window.innerWidth
     const screenHeight = window.innerHeight
+    const duckSize = 60
+    const planetSpacing = 80 // Distance from duck center
     const padding = 10
 
-    let safeX = Math.max(padding, Math.min(baseX, screenWidth - planetSize - padding))
-    let safeY = Math.max(padding, Math.min(baseY, screenHeight - planetSize - padding))
+    // Determine which corner/edge the duck is in
+    const isLeft = duckPosition.x < screenWidth / 3
+    const isRight = duckPosition.x > (screenWidth * 2) / 3
+    const isTop = duckPosition.y < screenHeight / 3
+    const isBottom = duckPosition.y > (screenHeight * 2) / 3
+    
+    const duckCenterX = duckPosition.x + duckSize / 2
+    const duckCenterY = duckPosition.y + duckSize / 2
 
-    return { x: safeX, y: safeY }
+    let positions = []
+
+    if (isLeft && isTop) {
+      // Top-left corner: arrange planets to the right and below
+      positions = [
+        { x: duckCenterX + planetSpacing, y: duckCenterY - 20 }, // Settings (right)
+        { x: duckCenterX + 20, y: duckCenterY + planetSpacing }, // Chat/Record (below)
+        { x: duckCenterX + planetSpacing - 20, y: duckCenterY + 40 } // Close (bottom-right)
+      ]
+    } else if (isRight && isTop) {
+      // Top-right corner: arrange planets to the left and below
+      positions = [
+        { x: duckCenterX - planetSpacing, y: duckCenterY - 20 }, // Settings (left)
+        { x: duckCenterX - 20, y: duckCenterY + planetSpacing }, // Chat/Record (below)
+        { x: duckCenterX - planetSpacing + 20, y: duckCenterY + 40 } // Close (bottom-left)
+      ]
+    } else if (isLeft && isBottom) {
+      // Bottom-left corner: arrange planets to the right and above
+      positions = [
+        { x: duckCenterX + planetSpacing, y: duckCenterY + 20 }, // Settings (right)
+        { x: duckCenterX + 20, y: duckCenterY - planetSpacing }, // Chat/Record (above)
+        { x: duckCenterX + planetSpacing - 20, y: duckCenterY - 40 } // Close (top-right)
+      ]
+    } else if (isRight && isBottom) {
+      // Bottom-right corner: arrange planets to the left and above
+      positions = [
+        { x: duckCenterX - planetSpacing, y: duckCenterY + 20 }, // Settings (left)
+        { x: duckCenterX - 20, y: duckCenterY - planetSpacing }, // Chat/Record (above)
+        { x: duckCenterX - planetSpacing + 20, y: duckCenterY - 40 } // Close (top-left)
+      ]
+    } else {
+      // Default arrangement (center or edges): arrange in arc above duck
+      positions = [
+        { x: duckCenterX + planetSpacing, y: duckCenterY - 20 }, // Settings (right)
+        { x: duckCenterX, y: duckCenterY - planetSpacing }, // Chat/Record (top)
+        { x: duckCenterX - planetSpacing, y: duckCenterY - 20 } // Close (left)
+      ]
+    }
+
+    // Ensure all positions stay within screen bounds
+    return positions.map(pos => ({
+      x: Math.max(padding, Math.min(pos.x - 25, screenWidth - 50 - padding)), // -25 to center 50px planet
+      y: Math.max(padding, Math.min(pos.y - 25, screenHeight - 50 - padding))
+    }))
   }
 
   // Always show static duck widget with optional planet modals
-  return (
-    <>
+    return (
+      <>
         {/* Speech Bubble */}
         {(speechBubble || isStreaming) && (
           <div
@@ -1989,7 +2040,11 @@ ${modeInstructions}`)
             zIndex: 9999,
             transition: isDuckDragging ? 'none' : 'all 0.3s ease',
             userSelect: 'none',
-            transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)'
+            transform: isDuckDragging ? 'scale(1.1)' : 'scale(1)',
+            animation: 
+              isRecording ? 'duckPulse 1.5s ease-in-out infinite' :
+              connectionStatus === 'connecting' ? 'duckThinking 2s ease-in-out infinite' :
+              isSpeaking ? 'duckTalking 0.8s ease-in-out infinite' : 'none'
           }}
           onMouseDown={handleDuckMouseDown}
           onClick={handleDuckClick}
@@ -1999,18 +2054,20 @@ ${modeInstructions}`)
         </div>
 
         {/* Planet Modals */}
-      {showPlanetModals && !isDuckDragging && (
+      {showPlanetModals && !isDuckDragging && (() => {
+        const positions = getPlanetPositions()
+  return (
         <>
           {/* Settings Planet */}
-          <div
+    <div
             className="planet-modal"
-            style={{
-              position: 'fixed',
-              left: `${getSafePlanetPosition(duckPosition.x + 80, duckPosition.y - 10).x}px`,
-              top: `${getSafePlanetPosition(duckPosition.x + 80, duckPosition.y - 10).y}px`,
+      style={{
+        position: 'fixed',
+              left: `${positions[0].x}px`,
+              top: `${positions[0].y}px`,
               width: '50px',
               height: '50px',
-              background: 'linear-gradient(135deg, #fd7e14 0%, #e55a00 100%)',
+              background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
@@ -2036,13 +2093,15 @@ ${modeInstructions}`)
             className="planet-modal"
             style={{
               position: 'fixed',
-              left: `${getSafePlanetPosition(duckPosition.x + 40, duckPosition.y - 50).x}px`,
-              top: `${getSafePlanetPosition(duckPosition.x + 40, duckPosition.y - 50).y}px`,
+              left: `${positions[1].x}px`,
+              top: `${positions[1].y}px`,
               width: '50px',
               height: '50px',
               background: textMode 
                 ? 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' 
-                : 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)',
+                : isRecording
+                  ? 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)' // Red when recording
+                  : 'linear-gradient(135deg, #6c757d 0%, #495057 100%)', // Gray when not recording
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
@@ -2067,9 +2126,14 @@ ${modeInstructions}`)
                 if (isConnected) {
                   if (textMode) {
                     setShowCompactInput(!showCompactInput)
+                    setShowPlanetModals(false) // Close planet modals when chat opens
                     console.log('Toggling text input visibility')
                   } else {
-                    if (!isRecording) {
+                    setShowPlanetModals(false) // Close planet modals when recording starts
+                    if (isRecording) {
+                      stopRecording()
+                      console.log('Stopping recording')
+                    } else {
                       startRecording()
                       console.log('Starting recording')
                     }
@@ -2077,13 +2141,11 @@ ${modeInstructions}`)
                 }
               }
             }}
-            title={textMode ? 'Toggle Text Input' : 'Start Recording'}
+            title={textMode ? 'Toggle Text Input' : (isRecording ? 'Stop Recording' : 'Start Recording')}
           >
             {textMode ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 9V5a3 3 0 0 0-6 0v4"></path>
-                <path d="M11 5h2a2 2 0 0 1 2 2v6.5a1.5 1.5 0 0 1-3 0V9h-2v4.5a1.5 1.5 0 0 1-3 0V7a2 2 0 0 1 2-2z"></path>
-                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
               </svg>
             ) : (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2093,15 +2155,15 @@ ${modeInstructions}`)
                 <line x1="8" y1="23" x2="16" y2="23"></line>
               </svg>
             )}
-          </div>
+            </div>
 
           {/* Close Planet */}
           <div
             className="planet-modal"
             style={{
               position: 'fixed',
-              left: `${getSafePlanetPosition(duckPosition.x - 20, duckPosition.y - 30, 40).x}px`,
-              top: `${getSafePlanetPosition(duckPosition.x - 20, duckPosition.y - 30, 40).y}px`,
+              left: `${positions[2].x}px`,
+              top: `${positions[2].y}px`,
               width: '40px',
               height: '40px',
               background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
@@ -2123,9 +2185,10 @@ ${modeInstructions}`)
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
-          </div>
+                </div>
         </>
-      )}
+        )
+      })()}
     </>
   )
 }

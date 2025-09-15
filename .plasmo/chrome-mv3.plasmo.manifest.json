@@ -17,7 +17,7 @@
   },
   "version": "0.0.2",
   "author": "Collin Boler",
-  "name": "DEV | DuckCode",
+  "name": "DuckCode",
   "description": "Voice-to-voice mock coding interviewer for LeetCode practice",
   "background": {
     "service_worker": "./static/background/index.ts"

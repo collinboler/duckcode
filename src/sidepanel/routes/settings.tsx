@@ -224,20 +224,25 @@ export const Settings = () => {
             <h3>💬 Interview Mode</h3>
             <div className="setting-item">
               <div className="setting-content">
-                <label htmlFor="text-mode-switch">Text Mode</label>
+                <label>Input Method</label>
                 <p className="setting-description">
-                  Use text input instead of voice recording for interviews
+                  Choose how you want to interact with the AI interviewer
                 </p>
               </div>
-              <label className="switch">
-                <input 
-                  type="checkbox" 
-                  id="text-mode-switch"
-                  checked={textMode}
-                  onChange={(e) => handleToggle('textMode', e.target.checked)}
-                />
-                <span className="slider round"></span>
-              </label>
+              <div className="mode-selector">
+                <button 
+                  className={`mode-button ${!textMode ? 'active' : ''}`}
+                  onClick={() => handleToggle('textMode', false)}
+                >
+                  🎤 Voice
+                </button>
+                <button 
+                  className={`mode-button ${textMode ? 'active' : ''}`}
+                  onClick={() => handleToggle('textMode', true)}
+                >
+                  💬 Text
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1040,6 +1045,54 @@ export const Settings = () => {
 
         :global(.dark-mode) .setting-description {
           color: #d1d5db;
+        }
+
+        .mode-selector {
+          display: flex;
+          gap: 8px;
+          border-radius: 8px;
+          background: #f3f4f6;
+          padding: 4px;
+        }
+
+        .mode-button {
+          flex: 1;
+          padding: 8px 16px;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: #6b7280;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .mode-button:hover {
+          background: #e5e7eb;
+        }
+
+        .mode-button.active {
+          background: #3b82f6;
+          color: white;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        :global(.dark-mode) .mode-selector {
+          background: #374151;
+        }
+
+        :global(.dark-mode) .mode-button {
+          color: #d1d5db;
+        }
+
+        :global(.dark-mode) .mode-button:hover {
+          background: #4b5563;
+        }
+
+        :global(.dark-mode) .mode-button.active {
+          background: #3b82f6;
+          color: white;
         }
       `}</style>
     </>
