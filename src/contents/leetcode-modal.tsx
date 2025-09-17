@@ -135,7 +135,7 @@ const DuckCodeModalContent = () => {
   const [pendingShortcutAction, setPendingShortcutAction] = useState(false)
   const [personalitySettings, setPersonalitySettings] = useState<PersonalitySettings>({
     mode: 'interviewer',
-    sageRevelation: 30
+    sageRevelation: false
   })
   const [sidebarWidth, setSidebarWidth] = useState(0)
   const [showDebugTab, setShowDebugTab] = useState(false)
@@ -157,7 +157,7 @@ const DuckCodeModalContent = () => {
       setTextMode(result.textMode || false)
       setPersonalitySettings({
         mode: result.personalityMode || 'interviewer',
-        sageRevelation: result.sageRevelation || 30
+        sageRevelation: result.sageRevelation || false
       })
       
       // If no shortcut was previously saved, save the default
@@ -236,6 +236,16 @@ const DuckCodeModalContent = () => {
       .replace(/&#39;/g, "'")
       .replace(/\s+/g, ' ')
       .trim()
+  }
+
+  // Helper function to get personality display info
+  const getPersonalityDisplay = () => {
+    const emoji = personalitySettings.mode === 'sage' ? '🧙‍♂️' : '💪'
+    const name = personalitySettings.mode === 'sage' ? 'Sage' : 'Interviewer'
+    const revelation = personalitySettings.mode === 'sage' 
+      ? ` (${personalitySettings.sageRevelation ? 'Full Solutions' : 'Hints Only'})` 
+      : ''
+    return { emoji, name, revelation, fullDisplay: `${emoji} ${name}${revelation}` }
   }
 
 
@@ -947,7 +957,7 @@ ${modeInstructions}`)
       // Log system prompt in bold and user message
       setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
       setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
-      setTranscript(prev => prev + `\n\nInterviewer: ${result.response}`)
+      setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
 
       // Convert to speech (keep orange state during TTS generation)
       const audioBlob2 = await aiService.synthesizeSpeech(result.response)
@@ -1029,7 +1039,7 @@ ${modeInstructions}`)
         // Log system prompt and user message to transcript
         setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
-        setTranscript(prev => prev + `\n\nInterviewer: ${result.fullResponse}`)
+        setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.fullResponse}`)
 
         setIsStreaming(false)
         // Speech bubble stays up until manually dismissed
@@ -1046,7 +1056,7 @@ ${modeInstructions}`)
         // Log system prompt in bold and user message
         setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
-        setTranscript(prev => prev + `\n\nInterviewer: ${result.response}`)
+        setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
       }
 
       setConnectionStatus('connected')
@@ -1882,6 +1892,21 @@ ${modeInstructions}`)
                 animationDelay: '0s',
               }}></span>
             </div>}
+            {/* Personality indicator header */}
+            <div 
+              className="speech-bubble-header"
+              style={{
+                padding: '8px 16px 4px 16px',
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#666',
+                borderBottom: '1px solid #f0f0f0',
+                background: '#fafafa',
+                borderRadius: '12px 12px 0 0',
+              }}
+            >
+              {getPersonalityDisplay().fullDisplay}
+            </div>
             <div 
               className="speech-bubble-content"
               style={{

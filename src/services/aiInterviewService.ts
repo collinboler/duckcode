@@ -21,7 +21,7 @@ interface InterviewContext {
 
 interface PersonalitySettings {
   mode: 'sage' | 'interviewer'
-  sageRevelation: number // 0-100
+  sageRevelation: boolean // true = full solutions, false = hints only
 }
 
 class AIInterviewService {
@@ -41,7 +41,7 @@ class AIInterviewService {
     console.log('Conversation history cleared for new problem')
   }
 
-  private buildSystemPrompt(isTextMode: boolean = false, personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: 30 }): string {
+  private buildSystemPrompt(isTextMode: boolean = false, personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: false }): string {
     if (!this.staticContext) {
       if (isTextMode) {
         return this.buildPersonalityPrompt(personality, false)
@@ -116,29 +116,17 @@ VOICE MODE CONSTRAINTS:
 
   private buildPersonalityPrompt(personality: PersonalitySettings, isVoiceMode: boolean): string {
     if (personality.mode === 'sage') {
-      const revelationLevel = personality.sageRevelation
+      const showFullSolutions = personality.sageRevelation
       let helpLevel = ''
       
-      if (revelationLevel <= 20) {
-        helpLevel = isVoiceMode 
-          ? 'Give brief hints. No questions unless essential.'
-          : 'Provide only subtle hints and ask guiding questions. Never reveal the solution directly.'
-      } else if (revelationLevel <= 40) {
-        helpLevel = isVoiceMode 
-          ? 'Give helpful hints and brief code snippets. Keep explanations short.'
-          : 'Give helpful hints and show small code snippets when asked. Guide them toward the solution.'
-      } else if (revelationLevel <= 60) {
-        helpLevel = isVoiceMode 
-          ? 'Provide clear but concise explanations with short code examples.'
-          : 'Provide clear explanations and show relevant code examples. Help them understand the approach.'
-      } else if (revelationLevel <= 80) {
-        helpLevel = isVoiceMode 
-          ? 'Give focused explanations with key code examples. No unnecessary details.'
-          : 'Give detailed explanations with code examples. Show most of the solution when they\'re stuck.'
-      } else {
+      if (showFullSolutions) {
         helpLevel = isVoiceMode 
           ? 'Provide complete but concise solutions. Focus on the essential parts only.'
           : 'Provide complete solutions with full explanations when asked. Act as a comprehensive coding assistant.'
+      } else {
+        helpLevel = isVoiceMode 
+          ? 'Give brief hints. No questions unless essential.'
+          : 'Provide only subtle hints and ask guiding questions. Never reveal the solution directly.'
       }
 
       if (isVoiceMode) {
@@ -172,17 +160,18 @@ Use proper markdown formatting for clear communication.`
         return `You are a professional technical interviewer conducting a coding interview via voice.
 
 CRITICAL VOICE MODE RULES:
-- Keep ALL responses under 75 words maximum
+- Keep ALL responses brief
 - Be extremely brief and professional
 - Never ask follow-up questions unless essential for clarification
-- Give direct, factual answers only
+- Only provide problem clarifiction and answers to syntax questions, don't ever reveal the solution
 - Skip conversational elements entirely
 - No encouragement phrases - just facts
 
 Your role:
 - Answer syntax questions directly
 - Clarify problem requirements briefly
-- Explain errors concisely
+- Only provide problem clarifiction and answers to syntax questions, don't ever reveal the solution
+- Explain errors concisel
 - Provide quick feedback on approach/complexity
 
 You should NOT: Give solutions, write code, or provide major hints. Keep it minimal and professional.`
@@ -192,6 +181,7 @@ You should NOT: Give solutions, write code, or provide major hints. Keep it mini
 - Ask clarifying questions about the problem requirements
 - Answer syntax questions and language-specific queries
 - Clarify edge cases and constraints
+
 - Provide feedback on approach and time/space complexity
 - Help with debugging syntax errors
 - Explain compiler/runtime errors
@@ -235,7 +225,7 @@ Use proper markdown formatting for clear communication.`
     userInput: string, 
     context: InterviewContext, 
     isTextMode: boolean = false,
-    personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: 30 }
+    personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: false }
   ): Promise<{ response: string, systemPrompt: string, userMessage: string }> {
     // Build dynamic context message and system prompt
     const contextMessage = this.buildContextMessage(context)
@@ -314,7 +304,7 @@ Use proper markdown formatting for clear communication.`
     context: InterviewContext,
     onChunk: (chunk: string) => void,
     isTextMode: boolean = false,
-    personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: 30 }
+    personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: false }
   ): Promise<{ fullResponse: string, systemPrompt: string, userMessage: string }> {
     // Build dynamic context message and system prompt
     const contextMessage = this.buildContextMessage(context)

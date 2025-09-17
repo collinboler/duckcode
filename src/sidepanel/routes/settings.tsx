@@ -11,7 +11,7 @@ export const Settings = () => {
   const [textMode, setTextMode] = useState(false)
   const [gptModel, setGptModel] = useState('gpt-4')
   const [personalityMode, setPersonalityMode] = useState<'sage' | 'interviewer'>('interviewer')
-  const [sageRevelation, setSageRevelation] = useState(30) // 0-100 scale
+  const [sageRevelation, setSageRevelation] = useState(false) // true = full solutions, false = hints only
 
   // Load settings from storage
   useEffect(() => {
@@ -23,7 +23,7 @@ export const Settings = () => {
       
       setTextMode(result.textMode || false)
       setPersonalityMode(result.personalityMode || 'interviewer')
-      setSageRevelation(result.sageRevelation || 30)
+      setSageRevelation(result.sageRevelation || false)
     })
   }, [])
 
@@ -43,7 +43,7 @@ export const Settings = () => {
     })
   }
 
-  const handleSageRevelationChange = (value: number) => {
+  const handleSageRevelationChange = (value: boolean) => {
     setSageRevelation(value)
     chrome.storage.sync.set({ sageRevelation: value }, () => {
       console.log('Sage revelation level saved:', value)
@@ -160,9 +160,9 @@ export const Settings = () => {
             <h3>Input/Output Mode</h3>
             <div className="setting-item">
               <div className="setting-content">
-                <label>Input Method</label>
+                {/* <label>Input Method</label> */}
                 <p className="setting-description">
-                  Choose how you want to interact with the AI
+                  Choose how you want to interact
                 </p> 
               </div>
               <div className="mode-selector">
@@ -193,13 +193,13 @@ export const Settings = () => {
 
           {/* Personality Mode Settings Section */}
           <div className="settings-section">
-            <h3>DuckCode Personality</h3>
+            <h3>Personality</h3>
             <div className="setting-item">
               <div className="setting-content">
-                <label>AI Personality Mode</label>
+{/*               
                 <p className="setting-description">
                   Choose how the AI should behave during coding sessions
-                </p>
+                </p> */}
               </div>
               <div className="mode-selector">
                 <button 
@@ -229,25 +229,26 @@ export const Settings = () => {
             {personalityMode === 'sage' && (
               <div className="setting-item">
                 <div className="setting-content">
-                  <label>Solution Revelation Level</label>
-                  <p className="setting-description">
-                    How much should the Sage reveal when helping? (0% = hints only, 100% = full solutions)
-                  </p>
+                  {/* <label>Solution Revelation Level</label> */}
+                  {/* <p className="setting-description">
+                    How much should the Sage reveal when helping?
+                  </p> */}
                 </div>
-                <div className="slider-container">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={sageRevelation}
-                    onChange={(e) => handleSageRevelationChange(parseInt(e.target.value))}
-                    className="revelation-slider"
-                  />
-                  <div className="slider-labels">
-                    <span>Hints Only</span>
-                    <span className="slider-value">{sageRevelation}%</span>
-                    <span>Full Solutions</span>
-                  </div>
+                <div className="mode-selector">
+                  <button 
+                    className={`mode-button ${!sageRevelation ? 'active' : ''}`}
+                    onClick={() => handleSageRevelationChange(false)}
+                  >
+                    <span style={{ marginRight: '8px', fontSize: '16px' }}>💡</span>
+                    Hints Only
+                  </button>
+                  <button 
+                    className={`mode-button ${sageRevelation ? 'active' : ''}`}
+                    onClick={() => handleSageRevelationChange(true)}
+                  >
+                    <span style={{ marginRight: '8px', fontSize: '16px' }}>🎯</span>
+                    Full Solutions
+                  </button>
                 </div>
               </div>
             )}
@@ -258,7 +259,7 @@ export const Settings = () => {
 
         </div>
 
-      <style jsx="true">{`
+      <style>{`
         .settings-page {
           width: 100%;
         }
