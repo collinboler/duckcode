@@ -97,7 +97,15 @@ export const Settings = () => {
 
   return (
     <>
-      <div className="settings-content">
+        {/* Settings Header */}
+        <div className="settings-header">
+          <Link to="/" className="back-button">
+            ← Back to Chat
+          </Link>
+          <h2>Settings</h2>
+        </div>
+        
+        <div className="settings-content">
           {/* No authentication required - open source version */}
 
           {/* OpenAI Configuration Section */}
@@ -264,6 +272,39 @@ export const Settings = () => {
           width: 100%;
         }
 
+        .settings-header {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          padding: 12px 16px;
+          background: white;
+          border-bottom: 1px solid #e1e5e9;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .back-button {
+          background: none;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          color: #666;
+          text-decoration: none;
+          font-size: 14px;
+          transition: all 0.2s ease;
+        }
+
+        .back-button:hover {
+          background: #f0f0f0;
+          color: #333;
+        }
+
+        .settings-header h2 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: #333;
+        }
 
         .settings-content {
           display: flex;

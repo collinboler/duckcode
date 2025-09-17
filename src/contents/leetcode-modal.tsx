@@ -959,6 +959,14 @@ ${modeInstructions}`)
       setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
       setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
 
+      // Send response to sidebar if available
+      chrome.runtime.sendMessage({
+        action: 'aiResponse',
+        content: result.response
+      }).catch(() => {
+        // Sidebar might not be open, ignore errors
+      })
+
       // Convert to speech (keep orange state during TTS generation)
       const audioBlob2 = await aiService.synthesizeSpeech(result.response)
       const audioUrl = URL.createObjectURL(audioBlob2)
@@ -1015,6 +1023,14 @@ ${modeInstructions}`)
       // Add user text to transcript
       setTranscript(prev => prev + `\n\nYou: ${userText}`)
 
+      // Send user message to sidebar if available
+      chrome.runtime.sendMessage({
+        action: 'userMessage',
+        content: userText
+      }).catch(() => {
+        // Sidebar might not be open, ignore errors
+      })
+
       // Get AI response with conversation history
       console.log('Processing user input:', userText)
       console.log('Current context:', context)
@@ -1041,6 +1057,14 @@ ${modeInstructions}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
         setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.fullResponse}`)
 
+        // Send response to sidebar if available
+        chrome.runtime.sendMessage({
+          action: 'aiResponse',
+          content: result.fullResponse
+        }).catch(() => {
+          // Sidebar might not be open, ignore errors
+        })
+
         setIsStreaming(false)
         // Speech bubble stays up until manually dismissed
       } else {
@@ -1057,6 +1081,14 @@ ${modeInstructions}`)
         setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
         setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
+
+        // Send response to sidebar if available
+        chrome.runtime.sendMessage({
+          action: 'aiResponse',
+          content: result.response
+        }).catch(() => {
+          // Sidebar might not be open, ignore errors
+        })
       }
 
       setConnectionStatus('connected')
@@ -1380,6 +1412,37 @@ ${modeInstructions}`)
     chrome.storage.onChanged.addListener(handleStorageChange)
     return () => chrome.storage.onChanged.removeListener(handleStorageChange)
   }, [])
+
+  // Listen for messages from sidebar chat
+  useEffect(() => {
+    const handleMessage = (message: any, sender: any, sendResponse: any) => {
+      if (message.action === 'processUserInput') {
+        // Process user input from sidebar chat
+        processTextWithOpenAI(message.content)
+          .then(() => {
+            sendResponse({ success: true })
+          })
+          .catch((error) => {
+            console.error('Error processing chat input:', error)
+            sendResponse({ success: false, error: error.message })
+          })
+        return true // Keep message channel open for async response
+      }
+      
+      if (message.action === 'startRecording') {
+        startRecording()
+        sendResponse({ success: true })
+      }
+      
+      if (message.action === 'stopRecording') {
+        stopRecording()
+        sendResponse({ success: true })
+      }
+    }
+
+    chrome.runtime.onMessage.addListener(handleMessage)
+    return () => chrome.runtime.onMessage.removeListener(handleMessage)
+  }, [aiService, personalitySettings])
 
   // Mouse event handlers for hold-to-record button
   const handleRecordMouseDown = (e: React.MouseEvent) => {
