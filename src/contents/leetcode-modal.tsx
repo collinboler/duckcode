@@ -83,7 +83,7 @@ const openSidepanelSettings = (() => {
       if (chrome.runtime.lastError) {
         console.error('Runtime error opening sidepanel:', chrome.runtime.lastError.message)
       } else {
-        console.log('Sidepanel opened successfully:', response)
+      console.log('Sidepanel opened successfully:', response)
       }
       
       // Reset the flag after a short delay to allow the action to complete
@@ -1735,7 +1735,7 @@ ${modeInstructions}`)
     const screenWidth = window.innerWidth
     const screenHeight = window.innerHeight
     const duckSize = 60
-    const planetSpacing = 80 // Distance from duck center
+    const planetDistance = 80 // Equal distance between planets in right triangle
     const padding = 10
 
     // Determine quadrant based on screen center (not thirds)
@@ -1747,34 +1747,34 @@ ${modeInstructions}`)
 
     let positions = []
 
-    // Always use clean triangular formation, just transpose based on quadrant
+    // Always use equal distance from duck's edge, with close button at 45° angle
     if (isLeft && isTop) {
-      // Top-left quadrant: arrange planets to the right and below (original formation)
+      // Top-left quadrant: arrange planets to the right and below
       positions = [
-        { x: duckCenterX + planetSpacing, y: duckCenterY - 20 }, // Settings (right)
-        { x: duckCenterX + 20, y: duckCenterY + planetSpacing }, // Chat/Record (below)
-        { x: duckCenterX + planetSpacing - 20, y: duckCenterY + 40 } // Close (bottom-right)
+        { x: duckCenterX + planetDistance, y: duckCenterY }, // Settings (right, same Y)
+        { x: duckCenterX, y: duckCenterY + planetDistance }, // Chat/Record (below, same X)
+        { x: duckCenterX + (planetDistance * 0.707), y: duckCenterY + (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     } else if (!isLeft && isTop) {
       // Top-right quadrant: flip horizontally - arrange planets to the left and below
       positions = [
-        { x: duckCenterX - planetSpacing, y: duckCenterY - 20 }, // Settings (left)
-        { x: duckCenterX - 20, y: duckCenterY + planetSpacing }, // Chat/Record (below)
-        { x: duckCenterX - planetSpacing + 20, y: duckCenterY + 40 } // Close (bottom-left)
+        { x: duckCenterX - planetDistance, y: duckCenterY }, // Settings (left, same Y)
+        { x: duckCenterX, y: duckCenterY + planetDistance }, // Chat/Record (below, same X)
+        { x: duckCenterX - (planetDistance * 0.707), y: duckCenterY + (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     } else if (isLeft && !isTop) {
       // Bottom-left quadrant: flip vertically - arrange planets to the right and above
       positions = [
-        { x: duckCenterX + planetSpacing, y: duckCenterY + 20 }, // Settings (right)
-        { x: duckCenterX + 20, y: duckCenterY - planetSpacing }, // Chat/Record (above)
-        { x: duckCenterX + planetSpacing - 20, y: duckCenterY - 40 } // Close (top-right)
+        { x: duckCenterX + planetDistance, y: duckCenterY }, // Settings (right, same Y)
+        { x: duckCenterX, y: duckCenterY - planetDistance }, // Chat/Record (above, same X)
+        { x: duckCenterX + (planetDistance * 0.707), y: duckCenterY - (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     } else {
       // Bottom-right quadrant: flip both horizontally and vertically - arrange planets to the left and above
       positions = [
-        { x: duckCenterX - planetSpacing, y: duckCenterY + 20 }, // Settings (left)
-        { x: duckCenterX - 20, y: duckCenterY - planetSpacing }, // Chat/Record (above)
-        { x: duckCenterX - planetSpacing + 20, y: duckCenterY - 40 } // Close (top-left)
+        { x: duckCenterX - planetDistance, y: duckCenterY }, // Settings (left, same Y)
+        { x: duckCenterX, y: duckCenterY - planetDistance }, // Chat/Record (above, same X)
+        { x: duckCenterX - (planetDistance * 0.707), y: duckCenterY - (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     }
 
