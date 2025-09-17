@@ -1738,51 +1738,43 @@ ${modeInstructions}`)
     const planetSpacing = 80 // Distance from duck center
     const padding = 10
 
-    // Determine which corner/edge the duck is in
-    const isLeft = duckPosition.x < screenWidth / 3
-    const isRight = duckPosition.x > (screenWidth * 2) / 3
-    const isTop = duckPosition.y < screenHeight / 3
-    const isBottom = duckPosition.y > (screenHeight * 2) / 3
+    // Determine quadrant based on screen center (not thirds)
+    const isLeft = duckPosition.x < screenWidth / 2
+    const isTop = duckPosition.y < screenHeight / 2
     
     const duckCenterX = duckPosition.x + duckSize / 2
     const duckCenterY = duckPosition.y + duckSize / 2
 
     let positions = []
 
+    // Always use clean triangular formation, just transpose based on quadrant
     if (isLeft && isTop) {
-      // Top-left corner: arrange planets to the right and below
+      // Top-left quadrant: arrange planets to the right and below (original formation)
       positions = [
         { x: duckCenterX + planetSpacing, y: duckCenterY - 20 }, // Settings (right)
         { x: duckCenterX + 20, y: duckCenterY + planetSpacing }, // Chat/Record (below)
         { x: duckCenterX + planetSpacing - 20, y: duckCenterY + 40 } // Close (bottom-right)
       ]
-    } else if (isRight && isTop) {
-      // Top-right corner: arrange planets to the left and below
+    } else if (!isLeft && isTop) {
+      // Top-right quadrant: flip horizontally - arrange planets to the left and below
       positions = [
         { x: duckCenterX - planetSpacing, y: duckCenterY - 20 }, // Settings (left)
         { x: duckCenterX - 20, y: duckCenterY + planetSpacing }, // Chat/Record (below)
         { x: duckCenterX - planetSpacing + 20, y: duckCenterY + 40 } // Close (bottom-left)
       ]
-    } else if (isLeft && isBottom) {
-      // Bottom-left corner: arrange planets to the right and above
+    } else if (isLeft && !isTop) {
+      // Bottom-left quadrant: flip vertically - arrange planets to the right and above
       positions = [
         { x: duckCenterX + planetSpacing, y: duckCenterY + 20 }, // Settings (right)
         { x: duckCenterX + 20, y: duckCenterY - planetSpacing }, // Chat/Record (above)
         { x: duckCenterX + planetSpacing - 20, y: duckCenterY - 40 } // Close (top-right)
       ]
-    } else if (isRight && isBottom) {
-      // Bottom-right corner: arrange planets to the left and above
+    } else {
+      // Bottom-right quadrant: flip both horizontally and vertically - arrange planets to the left and above
       positions = [
         { x: duckCenterX - planetSpacing, y: duckCenterY + 20 }, // Settings (left)
         { x: duckCenterX - 20, y: duckCenterY - planetSpacing }, // Chat/Record (above)
         { x: duckCenterX - planetSpacing + 20, y: duckCenterY - 40 } // Close (top-left)
-      ]
-    } else {
-      // Default arrangement (center or edges): arrange in arc above duck
-      positions = [
-        { x: duckCenterX + planetSpacing, y: duckCenterY - 20 }, // Settings (right)
-        { x: duckCenterX, y: duckCenterY - planetSpacing }, // Chat/Record (top)
-        { x: duckCenterX - planetSpacing, y: duckCenterY - 20 } // Close (left)
       ]
     }
 

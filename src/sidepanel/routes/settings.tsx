@@ -162,8 +162,8 @@ export const Settings = () => {
               <div className="setting-content">
                 <label>Input Method</label>
                 <p className="setting-description">
-                  Choose how you want to interact with the AI interviewer
-                </p>
+                  Choose how you want to interact with the AI
+                </p> 
               </div>
               <div className="mode-selector">
                 <button 
