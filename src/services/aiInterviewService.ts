@@ -7,9 +7,11 @@ interface LeetCodeContent {
 }
 
 interface ConversationMessage {
+  id: string
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  replyToId?: string // Optional ID of the message this is replying to
 }
 
 interface InterviewContext {
@@ -274,13 +276,18 @@ Use proper markdown formatting for clear communication.`
       const aiResponse = data.choices[0].message.content
 
       // Add to conversation history
+      const userMessageId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      const assistantMessageId = `assistant_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      
       this.conversationHistory.push({
+        id: userMessageId,
         role: 'user',
         content: userInput, // Store just the user input, not the full context
         timestamp: new Date()
       })
 
       this.conversationHistory.push({
+        id: assistantMessageId,
         role: 'assistant',
         content: aiResponse,
         timestamp: new Date()
@@ -392,13 +399,18 @@ Use proper markdown formatting for clear communication.`
     }
 
     // Add to conversation history
+    const userMessageId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    const assistantMessageId = `assistant_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    
     this.conversationHistory.push({
+      id: userMessageId,
       role: 'user',
       content: userInput, // Store just the user input, not the full context
       timestamp: new Date()
     })
 
     this.conversationHistory.push({
+      id: assistantMessageId,
       role: 'assistant',
       content: fullResponse,
       timestamp: new Date()
@@ -420,6 +432,97 @@ Use proper markdown formatting for clear communication.`
 
   getHistory(): ConversationMessage[] {
     return [...this.conversationHistory]
+  }
+
+  async sendReply(
+    replyText: string, 
+    replyToId: string, 
+    context: InterviewContext,
+    isTextMode: boolean = false,
+    personality: PersonalitySettings = { mode: 'interviewer', sageRevelation: false }
+  ): Promise<{ response: string, systemPrompt: string, userMessage: string }> {
+    // Find the message being replied to
+    const replyToMessage = this.conversationHistory.find(msg => msg.id === replyToId)
+    let contextMessage = this.buildContextMessage(context)
+    
+    if (replyToMessage) {
+      contextMessage += `\n\nUser is replying to this message: "${replyToMessage.content}"`
+    }
+    
+    const systemPrompt = this.buildSystemPrompt(isTextMode, personality)
+    const fullUserMessage = `${contextMessage}\n\nUser replied: "${replyText}"`
+
+    // Prepare messages for API - include conversation history properly
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      // Include previous conversation history
+      ...this.conversationHistory.slice(-8).map(msg => ({ 
+        role: msg.role,
+        content: msg.content
+      })),
+      // Add current reply with context
+      { role: 'user', content: fullUserMessage }
+    ]
+
+    console.log('=== AI REPLY REQUEST ===')
+    console.log('Reply to ID:', replyToId)
+    console.log('Reply text:', replyText)
+    console.log('System Prompt:', systemPrompt)
+    console.log('User Message:', fullUserMessage)
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: messages as any,
+          max_tokens: 2000,
+          temperature: 0.7
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const aiResponse = data.choices[0].message.content
+
+      // Add to conversation history with reply reference
+      const userMessageId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      const assistantMessageId = `assistant_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      
+      this.conversationHistory.push({
+        id: userMessageId,
+        role: 'user',
+        content: replyText,
+        timestamp: new Date(),
+        replyToId: replyToId
+      })
+
+      this.conversationHistory.push({
+        id: assistantMessageId,
+        role: 'assistant',
+        content: aiResponse,
+        timestamp: new Date(),
+        replyToId: userMessageId // Assistant's response is replying to the user's reply
+      })
+
+      console.log('AI Reply received and added to history:', aiResponse)
+
+      return {
+        response: aiResponse,
+        systemPrompt,
+        userMessage: fullUserMessage
+      }
+    } catch (error) {
+      console.error('Error sending reply:', error)
+      throw error
+    }
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {

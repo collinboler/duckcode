@@ -52,11 +52,6 @@ export const Home = () => {
   }, [])
 
   const startInterview = async () => {
-    if (!isSignedIn) {
-      setTranscript('Please sign in to start a mock interview. Go to Settings to create an account or sign in.')
-      return
-    }
-
     if (!currentProblem) {
       setTranscript('Please navigate to a LeetCode problem page to start the interview.')
       return
@@ -79,18 +74,16 @@ export const Home = () => {
   return (
     <>
       <div className="main-section">
-        {!isSignedIn && (
-          <div className="welcome-section">
-            <div className="welcome-card">
-              <h2>Welcome to DuckCode!</h2>
-              <p>Practice coding interviews with voice-to-voice AI feedback</p>
-              <p>Navigate to a LeetCode problem and start your mock interview</p>
-              <div className="sign-in-hint">
-                Sign in via Settings to unlock all features
-              </div>
+        <div className="welcome-section">
+          <div className="welcome-card">
+            <h2>Welcome to DuckCode!</h2>
+            <p>Practice coding interviews with voice-to-voice AI feedback</p>
+            <p>Navigate to a LeetCode problem and start your mock interview</p>
+            <div className="sign-in-hint">
+              Use the floating modal on LeetCode pages for the full chat experience with reply functionality
             </div>
           </div>
-        )}
+        </div>
 
         {currentProblem ? (
           <div className="problem-detected">
@@ -132,9 +125,9 @@ export const Home = () => {
 
         {!interviewMode ? (
           <button 
-            className={`interview-button ${!currentProblem || !isSignedIn ? 'disabled' : ''}`}
+            className={`interview-button ${!currentProblem ? 'disabled' : ''}`}
             onClick={startInterview}
-            disabled={!currentProblem || !isSignedIn}
+            disabled={!currentProblem}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -183,7 +176,8 @@ export const Home = () => {
         )}
       </div>
 
-      <style jsx={true}>{`
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .welcome-section {
           padding: 20px 0;
         }
@@ -407,7 +401,8 @@ export const Home = () => {
           max-height: 300px;
           overflow-y: auto;
         }
-      `}</style>
+        `
+      }} />
     </>
   )
 }

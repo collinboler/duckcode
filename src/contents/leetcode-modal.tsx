@@ -4,6 +4,7 @@ import type { PlasmoCSConfig } from "plasmo"
 import React, { useState, useEffect, useRef } from "react"
 // Removed Clerk authentication - now open source and auth-free
 import { AIInterviewService, type InterviewContext, type PersonalitySettings } from '../services/aiInterviewService'
+import { ChatContainer } from '../features/chat-container'
 import duckIconUrl from "data-base64:~assets/duck_128.png"
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism'
@@ -12,6 +13,14 @@ declare global {
   interface Window {
     monaco?: any
   }
+}
+
+interface ConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: Date
+  replyToId?: string
 }
 
 export const config: PlasmoCSConfig = {
@@ -105,6 +114,7 @@ const DuckCodeModalContent = () => {
   const [isConnected, setIsConnected] = useState(false)
   const [interviewMode, setInterviewMode] = useState(false)
   const [transcript, setTranscript] = useState('')
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([])
   const [currentProblem, setCurrentProblem] = useState<string>('')
   const [leetcodeContent, setLeetcodeContent] = useState<LeetCodeContent | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
@@ -139,12 +149,54 @@ const DuckCodeModalContent = () => {
   })
   const [sidebarWidth, setSidebarWidth] = useState(0)
   const [showDebugTab, setShowDebugTab] = useState(false)
+  const [showChatPanel, setShowChatPanel] = useState(false)
   const [lastSystemPrompt, setLastSystemPrompt] = useState('')
   const [lastUserMessage, setLastUserMessage] = useState('')
 
   const modalRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+
+  // Update conversation messages from AI service history
+  const updateConversationFromHistory = () => {
+    if (aiService) {
+      const history = aiService.getHistory()
+      setConversationMessages(history)
+    }
+  }
+
+  // Handle reply to a message
+  const handleReply = async (messageId: string, replyText: string) => {
+    if (!aiService) return
+
+    try {
+      // Capture current execution context
+      const currentContent = scrapeLeetCodeContent()
+      const context: InterviewContext = {
+        currentCode: addLineNumbers(currentContent.codeSection || 'No code written yet'),
+        lastExecutedInput: currentContent.lastExecutedInput || '',
+        runtimeError: currentContent.runtimeError || '',
+        runtimeException: currentContent.runtimeException || ''
+      }
+
+      setConnectionStatus('connecting')
+      
+      // Send reply through AI service
+      const result = await aiService.sendReply(replyText, messageId, context, textMode, personalitySettings)
+      
+      // Update conversation history
+      updateConversationFromHistory()
+      
+      // Also add to transcript for backward compatibility
+      setTranscript(prev => prev + `\n\nYou (reply): ${replyText}`)
+      setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
+      
+      setConnectionStatus('connected')
+    } catch (error) {
+      console.error('Error sending reply:', error)
+      setConnectionStatus('connected')
+    }
+  }
 
   // Load settings from storage including position
   useEffect(() => {
@@ -959,6 +1011,9 @@ ${modeInstructions}`)
       setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
       setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
 
+      // Update conversation history
+      updateConversationFromHistory()
+
       // Convert to speech (keep orange state during TTS generation)
       const audioBlob2 = await aiService.synthesizeSpeech(result.response)
       const audioUrl = URL.createObjectURL(audioBlob2)
@@ -1041,6 +1096,9 @@ ${modeInstructions}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
         setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.fullResponse}`)
 
+        // Update conversation history
+        updateConversationFromHistory()
+
         setIsStreaming(false)
         // Speech bubble stays up until manually dismissed
       } else {
@@ -1057,6 +1115,9 @@ ${modeInstructions}`)
         setTranscript(prev => prev + `\n\n**SYSTEM PROMPT:**\n${result.systemPrompt}`)
         setTranscript(prev => prev + `\n\n**USER MESSAGE:**\n${result.userMessage}`)
         setTranscript(prev => prev + `\n\n${getPersonalityDisplay().fullDisplay}: ${result.response}`)
+
+        // Update conversation history
+        updateConversationFromHistory()
       }
 
       setConnectionStatus('connected')
@@ -1757,33 +1818,37 @@ ${modeInstructions}`)
 
     let positions = []
 
-    // Always use equal distance from duck's edge, with close button at 45° angle
+    // Always use equal distance from duck's edge, arranged in a cross pattern with close at diagonal
     if (isLeft && isTop) {
       // Top-left quadrant: arrange planets to the right and below
       positions = [
         { x: duckCenterX + planetDistance, y: duckCenterY }, // Settings (right, same Y)
-        { x: duckCenterX, y: duckCenterY + planetDistance }, // Chat/Record (below, same X)
+        { x: duckCenterX, y: duckCenterY + planetDistance }, // Text/Voice Mode (below, same X)
+        { x: duckCenterX - planetDistance * 0.5, y: duckCenterY + planetDistance * 0.5 }, // Chat History (diagonal left-below)
         { x: duckCenterX + (planetDistance * 0.707), y: duckCenterY + (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     } else if (!isLeft && isTop) {
       // Top-right quadrant: flip horizontally - arrange planets to the left and below
       positions = [
         { x: duckCenterX - planetDistance, y: duckCenterY }, // Settings (left, same Y)
-        { x: duckCenterX, y: duckCenterY + planetDistance }, // Chat/Record (below, same X)
+        { x: duckCenterX, y: duckCenterY + planetDistance }, // Text/Voice Mode (below, same X)
+        { x: duckCenterX + planetDistance * 0.5, y: duckCenterY + planetDistance * 0.5 }, // Chat History (diagonal right-below)
         { x: duckCenterX - (planetDistance * 0.707), y: duckCenterY + (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     } else if (isLeft && !isTop) {
       // Bottom-left quadrant: flip vertically - arrange planets to the right and above
       positions = [
         { x: duckCenterX + planetDistance, y: duckCenterY }, // Settings (right, same Y)
-        { x: duckCenterX, y: duckCenterY - planetDistance }, // Chat/Record (above, same X)
+        { x: duckCenterX, y: duckCenterY - planetDistance }, // Text/Voice Mode (above, same X)
+        { x: duckCenterX - planetDistance * 0.5, y: duckCenterY - planetDistance * 0.5 }, // Chat History (diagonal left-above)
         { x: duckCenterX + (planetDistance * 0.707), y: duckCenterY - (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     } else {
       // Bottom-right quadrant: flip both horizontally and vertically - arrange planets to the left and above
       positions = [
         { x: duckCenterX - planetDistance, y: duckCenterY }, // Settings (left, same Y)
-        { x: duckCenterX, y: duckCenterY - planetDistance }, // Chat/Record (above, same X)
+        { x: duckCenterX, y: duckCenterY - planetDistance }, // Text/Voice Mode (above, same X)
+        { x: duckCenterX + planetDistance * 0.5, y: duckCenterY - planetDistance * 0.5 }, // Chat History (diagonal right-above)
         { x: duckCenterX - (planetDistance * 0.707), y: duckCenterY - (planetDistance * 0.707) } // Close (45° diagonal)
       ]
     }
@@ -2260,13 +2325,48 @@ ${modeInstructions}`)
             )}
             </div>
 
-          {/* Close Planet */}
+          {/* Chat History Planet */}
           <div
             className="planet-modal"
             style={{
               position: 'fixed',
               left: `${positions[2].x}px`,
               top: `${positions[2].y}px`,
+              width: '40px',
+              height: '40px',
+              background: 'linear-gradient(135deg, #17a2b8 0%, #117a8b 100%)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
+              zIndex: 10000, // Same as speech bubble but below duck
+              transition: 'all 0.3s ease',
+              transform: 'scale(1)',
+              opacity: 1
+            }}
+            onClick={(e) => {
+              e.stopPropagation() // Prevent event bubbling
+              setShowChatPanel(!showChatPanel)
+              setShowPlanetModals(false)
+            }}
+            title="Toggle Chat History"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              <path d="M8 9h8"/>
+              <path d="M8 13h6"/>
+            </svg>
+          </div>
+
+          {/* Close Planet */}
+          <div
+            className="planet-modal"
+            style={{
+              position: 'fixed',
+              left: `${positions[3].x}px`,
+              top: `${positions[3].y}px`,
               width: '40px',
               height: '40px',
               background: 'linear-gradient(135deg, #6c757d 0%, #495057 100%)',
@@ -2295,6 +2395,106 @@ ${modeInstructions}`)
         </>
         )
       })()}
+
+      {/* Chat History Panel */}
+      {showChatPanel && (
+        <div
+          className="chat-panel"
+          style={{
+            position: 'fixed',
+            left: (() => {
+              const screenWidth = window.innerWidth;
+              const availableWidth = screenWidth - sidebarWidth; // Account for sidebar
+              const panelWidth = Math.min(500, availableWidth * 0.5);
+              
+              const isLeft = duckPosition.x < availableWidth / 2;
+              
+              let leftPos;
+              if (isLeft) {
+                // Duck on left side - panel goes right
+                leftPos = duckPosition.x + 80;
+              } else {
+                // Duck on right side - panel goes left
+                leftPos = duckPosition.x - panelWidth - 20;
+              }
+              
+              // Ensure panel stays within available screen bounds (excluding sidebar)
+              const minLeft = sidebarWidth + 10; // Account for sidebar
+              const maxLeft = screenWidth - panelWidth - 10;
+              leftPos = Math.max(minLeft, Math.min(leftPos, maxLeft));
+              
+              return leftPos;
+            })() + 'px',
+            top: (() => {
+              const panelHeight = 500;
+              let panelTop = duckPosition.y;
+              
+              // Adjust if it would go off screen
+              const screenHeight = window.innerHeight;
+              if (panelTop + panelHeight > screenHeight - 10) {
+                panelTop = screenHeight - panelHeight - 10; // Too low, move up
+              }
+              if (panelTop < 10) {
+                panelTop = 10; // Too high, move down
+              }
+              
+              return panelTop;
+            })() + 'px',
+            width: `${Math.min(500, (window.innerWidth - sidebarWidth) * 0.5)}px`,
+            height: '500px',
+            background: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.15)',
+            border: '1px solid #e1e5e9',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            zIndex: 10000,
+            overflow: 'hidden'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Panel Header */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              borderBottom: '1px solid #e1e5e9',
+              background: '#f8f9fa'
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333' }}>
+              Chat History
+            </h3>
+            <button
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '18px',
+                cursor: 'pointer',
+                color: '#666',
+                padding: '4px',
+                borderRadius: '4px',
+                lineHeight: 1
+              }}
+              onClick={() => setShowChatPanel(false)}
+              title="Close Chat Panel"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Chat Container */}
+          <div style={{ padding: '16px', height: 'calc(100% - 70px)', overflow: 'hidden' }}>
+            <ChatContainer
+              messages={conversationMessages}
+              onReply={handleReply}
+              isTextMode={textMode}
+              className="modal-chat"
+            />
+          </div>
+        </div>
+      )}
     </>
   )
 }
